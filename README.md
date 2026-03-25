@@ -21,4 +21,9 @@ beim Hochfahren des PCs !)
 
 um Benachrichtigungen zu deaktivieren.
 
+
+
+Das Programm sucht automatisch nach updates und läd auf knopfdruck
+den letzten release des Repository herunter.
+
 ===========================================================
