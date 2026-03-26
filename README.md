@@ -1,7 +1,7 @@
 
 Home Server Backup - by Dario
 
-
+=========================================================================
 
 1. -WindowsRuntime.exe ausführen
 
@@ -21,7 +21,7 @@ Home Server Backup - by Dario
 
   (nicht vorhandener Dateipfad wird erstellt)
 
-
+=========================================================================
 
 Öffnen Sie die uninstall.exe Datei um Benachrichtigungen zu deaktivieren.
 
@@ -35,3 +35,4 @@ Python Dateien in .exe Dateien umzuwandeln.
 Das Programm sucht automatisch nach updates und läd auf knopfdruck
 den letzten release des Repositorys herunter.
 
+=========================================================================
