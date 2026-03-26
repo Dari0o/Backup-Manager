@@ -3,21 +3,21 @@ Home Server Backup - by Dario
 
 =========================================================================
 
-1. -WindowsRuntime.exe ausführen
+1. -WindowsRuntime.exe ausführen wenn Sie Erinnerungsnachrichten
+   
+    alle 2 Monate erhalten wollen (Nur einmal ausführen Programm
 
-  wenn Sie Erinnerungsnachrichten alle 2 Monate erhalten wollen
+    läuft im Hintergrund und startet beim Hochfahren des PCs !).
 
-  (Nur einmal ausführen Programm läuft im Hintergrund und startet  
+    Wenn nach 2 Monaten kein Backup ausgeführt wurde, wird eine
 
-  beim Hochfahren des PCs !) Wenn nach 2 Monaten kein Backup ausgeführt
+    Windows Erinnerungsnachricht alle 7 Tage geschickt.
 
-  wurde wird eine Windows Erinnerungsnachricht alle 7 Tage geschickt
+3. -Bei Backupbedarf PiServerBackup.exe ausführen
 
-2. -Bei Backupbedarf PiServerBackup.exe ausführen
+4. -Dateipfad eingeben welcher kopiert werden soll
 
-3. -Dateipfad eingeben welcher kopiert werden soll
-
-4. -Zielpfad innerhalb von \\pi4\Share\Backup
+5. -Zielpfad innerhalb von \\pi4\Share\Backup
 
   (nicht vorhandener Dateipfad wird erstellt)
 
@@ -27,9 +27,7 @@ Home Server Backup - by Dario
 
 Führen sie die .bat Dateien im build_exe Ordner aus um 
 
-Python Dateien in .exe Dateien umzuwandeln. 
-
-(Destination Folder ist gehardcoded)
+Python Dateien in .exe Dateien umzuwandeln. (Destination Folder ist gehardcoded)
 
 
 Das Programm sucht automatisch nach updates und läd auf knopfdruck
