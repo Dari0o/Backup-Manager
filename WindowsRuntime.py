@@ -18,16 +18,37 @@ import subprocess
 CHECK_INTERVAL = 3600  # Sekunden zwischen Checks (1 Stunde)
 MAX_DAYS = 64           # Tage nach denen erinnert wird
 LOG_FILE = bm.BackupManager.log_file
-CONFIG_FILE = os.path.join(os.path.dirname(__file__), "reminder_config.json")
-UPDATE_CONFIG_FILE = os.path.join(os.path.dirname(__file__), "update_config.json")
-UPDATE_CHECK_INTERVAL = 3600  # Sekunden zwischen Update-Checks (1 Stunde)
 GITHUB_REPO = "Dari0o/Backup-Manager"  # GitHub Repository im Format owner/repo
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
-UPDATE_TRIGGER_FILE = os.path.join(os.path.dirname(__file__), "_update_trigger.json")
-PENDING_RELEASE_FILE = os.path.join(os.path.dirname(__file__), "_pending_release.json")
+UPDATE_CHECK_INTERVAL = 3600  # Sekunden zwischen Update-Checks (1 Stunde)
 last_notification_time = None
 
-# ----------------------------
+# Dynamische Config-Dateien (funktioniert auch wenn als .exe kompiliert)
+def _get_config_dir():
+    """Bestimmt das echte Konfigurationsverzeichnis"""
+    if getattr(sys, 'frozen', False):
+        # Als .exe kompiliert - suche das echte Installationsverzeichnis
+        exe_path = sys.executable
+        exe_dir = os.path.dirname(exe_path)
+        
+        # Wenn im Temp-Verzeichnis, nutze BackupManager's Installationsort
+        if "_MEI" in exe_dir or "Temp" in exe_dir:
+            # Versuche aus BackupManager.log_file Pfad abzuleiten
+            if hasattr(bm.BackupManager, 'log_file'):
+                log_dir = os.path.dirname(bm.BackupManager.log_file)
+                if os.path.exists(log_dir):
+                    return log_dir
+        
+        return exe_dir
+    else:
+        # Als Script - nutze __file__
+        return os.path.dirname(os.path.abspath(__file__))
+
+_CONFIG_DIR = _get_config_dir()
+CONFIG_FILE = os.path.join(_CONFIG_DIR, "reminder_config.json")
+UPDATE_CONFIG_FILE = os.path.join(_CONFIG_DIR, "update_config.json")
+UPDATE_TRIGGER_FILE = os.path.join(_CONFIG_DIR, "_update_trigger.json")
+PENDING_RELEASE_FILE = os.path.join(_CONFIG_DIR, "_pending_release.json")
 # Konsole verstecken (nur bei .exe)
 # ----------------------------
 def hide_console():
@@ -79,10 +100,16 @@ def ensure_autostart():
 # ----------------------------
 # Protocol Handler für Snooze-Button registrieren
 # ----------------------------
+def get_installation_directory():
+    """Bestimmt das echte Installationsverzeichnis (nicht Temp)"""
+    return _get_config_dir()
+
 def register_protocol_handlers():
     """Registriert Protocol Handler für Buttons"""
     try:
-        script_dir = os.path.dirname(os.path.abspath(__file__))
+        # Bestimme das echte Installationsverzeichnis
+        script_dir = get_installation_directory()
+        bm.BackupManager.log(f"DEBUG: Installationsverzeichnis = {script_dir}")
         
         # Bestimme Python-Executable - nutze pythonw.exe für Update Handler (ohne Konsole)
         if getattr(sys, 'frozen', False):
@@ -98,25 +125,39 @@ def register_protocol_handlers():
         # Handler registrieren
         handlers = {
             "snooze_7days://": {
-                "script": "snooze_reminder.py",
+                "script": "snooze_reminder",
                 "description": "Snooze NAS Backup Reminder"
             },
             "backup_now://": {
-                "script": "backup_now.py",
+                "script": "backup_now",
                 "description": "Start NAS Backup Now"
             },
             "update_now://": {
-                "script": "update_handler.py",
+                "script": "update_handler",
                 "description": "Update WindowsRuntime"
             }
         }
         
         for protocol, info in handlers.items():
             protocol_name = protocol.replace("://", "")
-            script_path = os.path.join(script_dir, info["script"])
+            script_base = info["script"]
             
-            if not os.path.exists(script_path):
-                bm.BackupManager.log(f"⚠ Script nicht gefunden: {script_path}")
+            # Versuche .exe zu finden (wenn als exe kompiliert)
+            script_exe = os.path.join(script_dir, f"{script_base}.exe")
+            script_py = os.path.join(script_dir, f"{script_base}.py")
+            
+            # Nutze .exe wenn vorhanden, sonst .py
+            if os.path.exists(script_exe):
+                script_path = script_exe
+                command = f'"{script_exe}"'
+                bm.BackupManager.log(f"DEBUG: Nutze .exe für {protocol_name}: {script_exe}")
+            elif os.path.exists(script_py):
+                script_path = script_py
+                command = f'"{python_exe}" "{script_py}"'
+                bm.BackupManager.log(f"DEBUG: Nutze .py für {protocol_name}: {script_py}")
+            else:
+                bm.BackupManager.log(f"⚠ Script nicht gefunden (.exe oder .py): {script_base} in {script_dir}")
+                bm.BackupManager.log(f"  Versuchte Pfade: {script_exe} oder {script_py}")
                 continue
             
             protocol_path = rf"Software\Classes\{protocol_name}"
@@ -129,13 +170,12 @@ def register_protocol_handlers():
                 # URL-Protokoll-Flag
                 winreg.SetValueEx(key, "URL Protocol", 0, winreg.REG_SZ, "")
                 
-                # Shell\Open\command - direkt Python aufrufen mit Anführungszeichen
+                # Shell\Open\command registrieren
                 shell_key = winreg.CreateKey(hkey, protocol_path + r"\shell\open\command")
-                command = f'"{python_exe}" "{script_path}"'
                 winreg.SetValueEx(shell_key, "", 0, winreg.REG_SZ, command)
                 winreg.CloseKey(shell_key)
                 
-                bm.BackupManager.log(f"✓ Protocol Handler registriert: {protocol_name}:// -> {script_path}")
+                bm.BackupManager.log(f"✓ Protocol Handler registriert: {protocol_name}:// -> {os.path.basename(script_path)}")
                 bm.BackupManager.log(f"  Command: {command}")
             except Exception as e:
                 bm.BackupManager.log(f"✗ Fehler beim Registrieren von {protocol_name}://: {e}")
@@ -205,27 +245,42 @@ def check_for_update():
     
     # Prüfe nicht öfter als UPDATE_CHECK_INTERVAL
     if config["last_check"] and now - config["last_check"] < timedelta(seconds=UPDATE_CHECK_INTERVAL):
+        time_remaining = UPDATE_CHECK_INTERVAL - (now - config["last_check"]).total_seconds()
         return None
     
+    bm.BackupManager.log("=" * 60)
     bm.BackupManager.log("Prüfe auf Updates...")
+    bm.BackupManager.log(f"  last_known_version: {config.get('last_known_version', 'KEINE')}")
+    bm.BackupManager.log(f"  ignored_version: {config.get('ignored_version', 'KEINE')}")
     config["last_check"] = now
     save_update_config(config)
     
     latest = get_latest_release()
     if not latest:
+        bm.BackupManager.log("✗ Konnte neueste Release-Info nicht laden")
+        bm.BackupManager.log("=" * 60)
         return None
+    
+    bm.BackupManager.log(f"  Verfügbare Version: {latest['version']}")
     
     # Vergleiche Versionen
     if config["last_known_version"] == latest["version"]:
+        bm.BackupManager.log(f"✓ Version bereits bekannt ({latest['version']}) - keine neue Notification")
+        bm.BackupManager.log("=" * 60)
         return None  # Keine neue Version
     
     # Prüfe ob diese Version ignoriert wurde
     if config["ignored_version"] == latest["version"]:
+        bm.BackupManager.log(f"⊘ Version {latest['version']} wurde vom Benutzer ignoriert")
+        bm.BackupManager.log("=" * 60)
         return None
     
-    bm.BackupManager.log(f"✓ Neues Update verfügbar: {latest['version']}")
+    bm.BackupManager.log(f"✓ NEUES UPDATE VERFÜGBAR: {latest['version']}")
+    bm.BackupManager.log(f"  Alte bekannte Version: {config.get('last_known_version', 'KEINE')}")
+    bm.BackupManager.log(f"  Neue Version: {latest['version']}")
     config["last_known_version"] = latest["version"]
     save_update_config(config)
+    bm.BackupManager.log("=" * 60)
     
     return latest
 
@@ -353,10 +408,25 @@ def perform_update(release_info):
         
         bm.BackupManager.log(f"✓ Update zu {release_info['version']} erfolgreich durchgeführt!")
         
-        # Update-Konfiguration zurücksetzen
+        # Update-Konfiguration aktualisieren - WICHTIG: last_known_version setzen damit keine neue Notification angezeigt wird
         config = load_update_config()
+        config["last_known_version"] = release_info['version']  # Setze auf aktuelle Version um erneute Notifications zu vermeiden
         config["ignored_version"] = None
+        config["last_check"] = datetime.now()  # Aktualisiere auch last_check
         save_update_config(config)
+        
+        bm.BackupManager.log(f"✓ Update-Konfiguration aktualisiert")
+        bm.BackupManager.log(f"  - last_known_version: {release_info['version']}")
+        bm.BackupManager.log(f"  - Nächste Notification wird für eine NEUE Version angezeigt")
+        
+        # Cleanup: Lösche pending-Dateien
+        for pending_file in [PENDING_RELEASE_FILE, UPDATE_TRIGGER_FILE]:
+            if os.path.exists(pending_file):
+                try:
+                    os.remove(pending_file)
+                    bm.BackupManager.log(f"✓ Cleanup: {os.path.basename(pending_file)} gelöscht")
+                except Exception as e:
+                    bm.BackupManager.log(f"⚠ Konnte {os.path.basename(pending_file)} nicht löschen: {e}")
         
         return True
         
