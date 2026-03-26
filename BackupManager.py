@@ -311,6 +311,5 @@ R A S P B E R R Y   P I   N A S
             BackupManager.log(f"FEHLER: {e}")
 
 
-# Script direkt startbar
 if __name__ == "__main__":
     BackupManager.main()
