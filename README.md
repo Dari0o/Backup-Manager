@@ -1,36 +1,82 @@
+# 🖥️ Home Server Backup
 
-Home Server Backup - by Dario
+**by Dario**
 
-=========================================================================
+---
 
-1. -WindowsRuntime.exe ausführen wenn Sie Erinnerungsnachrichten
-   
-    alle 2 Monate erhalten wollen (Nur einmal ausführen Programm
+## 📌 Übersicht
 
-    läuft im Hintergrund und startet beim Hochfahren des PCs !).
+Ein einfaches Tool zum Erstellen von Backups auf einem Home-Server (z. B. Raspberry Pi) mit integrierter Erinnerungsfunktion, damit regelmäßige Sicherungen nicht vergessen werden.
 
-    Wenn nach 2 Monaten kein Backup ausgeführt wurde, wird eine
+---
 
-    Windows Erinnerungsnachricht alle 7 Tage geschickt.
+## ⚙️ Features
 
-3. -Bei Backupbedarf PiServerBackup.exe ausführen
+* 🔔 Automatische Backup-Erinnerung alle 2 Monate
+* 🔁 Wiederholung der Erinnerung alle 7 Tage, falls kein Backup erfolgt
+* 📂 Frei wählbare Quell- und Zielpfade
+* 🆕 Automatische Update-Prüfung + Download des neuesten Releases
+* 🛠️ Möglichkeit, Python-Skripte in `.exe` umzuwandeln
 
-4. -Dateipfad eingeben welcher kopiert werden soll
+---
 
-5. -Zielpfad innerhalb von \\pi4\Share\Backup
+## 🚀 Verwendung
 
-  (nicht vorhandener Dateipfad wird erstellt)
+### 🔹 Erinnerungen aktivieren
 
-=========================================================================
+Starte **`WindowsRuntime.exe`** einmal:
 
-Öffnen Sie die uninstall.exe Datei um Benachrichtigungen zu deaktivieren.
+* Läuft anschließend dauerhaft im Hintergrund
+* Startet automatisch beim Hochfahren
+* Erinnerung nach 2 Monaten ohne Backup
+* Danach alle 7 Tage erneut
 
-Führen sie die .bat Dateien im build_exe Ordner aus um Python Dateien in .exe Dateien umzuwandeln. 
+---
 
-(Destination Folder ist gehardcoded)
+### 🔹 Backup erstellen
 
+Starte **`PiServerBackup.exe`**
 
-Das Programm sucht automatisch nach updates und läd auf knopfdruck
-den letzten release des Repositorys herunter.
+**Ablauf:**
 
-=========================================================================
+1. Quellpfad eingeben (zu sichernde Dateien/Ordner)
+2. Zielpfad wählen innerhalb von:
+
+   ```
+   \\pi4\Share\Backup
+   ```
+3. Falls der Ordner nicht existiert, wird er automatisch erstellt
+
+---
+
+## 🧹 Deinstallation
+
+Zum Deaktivieren der Erinnerungen:
+
+* **`uninstall.exe`** ausführen
+
+---
+
+## 🛠️ Build / Entwicklung
+
+Im Ordner **`build_exe`** befinden sich `.bat`-Dateien zum Erstellen von `.exe`-Dateien aus Python-Skripten.
+
+**Wichtig:**
+
+* Der Zielordner (*Destination Folder*) ist fest im Code hinterlegt (hardcoded)
+
+---
+
+## 🔄 Updates
+
+* Automatische Suche nach neuen Versionen
+* Download des neuesten Repository-Releases per Knopfdruck
+
+---
+
+## 📎 Hinweise
+
+* Netzwerkpfad `\\pi4\Share\Backup` muss erreichbar sein
+* Nur für Windows-Systeme geeignet
+
+---
