@@ -78,6 +78,6 @@ The **`build_exe`** folder contains `.bat` files to convert Python scripts into 
 
 * Ensure the network path `\\pi4\Share\Backup` is accessible
 * Designed for Windows systems only
-* Note that the software and everything around it is written in german
+* Note that the software and everything around it is written in German
 
 ---
