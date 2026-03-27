@@ -14,7 +14,7 @@ A simple tool for creating backups to a home server (e.g., Raspberry Pi) with a 
 
 * 🔔 Automatic backup reminder every 2 months
 * 🔁 Repeating reminder every 7 days if no backup was performed
-* 📂 თავისუფლად configurable source and destination paths
+* 📂 Configurable source and destination paths
 * 🆕 Automatic update check and download of the latest release
 * 🛠️ Ability to convert Python scripts into `.exe` files
 
