@@ -226,6 +226,7 @@ R A S P B E R R Y   P I   N A S
             )
 
             BackupManager.log(f"Gefundene Dateien in Quelle: {len(source_files)}")
+            BackupManager.log("Bitte warten, Scan Ziel wird gestartet...")
 
             target_index, target_size = BackupManager.load_target_index_multithread(
                 target_dir, "Scan Ziel"
@@ -311,5 +312,7 @@ R A S P B E R R Y   P I   N A S
             BackupManager.log(f"FEHLER: {e}")
 
 
+# Script direkt startbar
 if __name__ == "__main__":
     BackupManager.main()
+    input("Drücken Sie Enter, um das Programm zu beenden...")
