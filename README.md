@@ -4,79 +4,79 @@
 
 ---
 
-## 📌 Übersicht
+## 📌 Overview
 
-Ein einfaches Tool zum Erstellen von Backups auf einem Home-Server (z. B. Raspberry Pi) mit integrierter Erinnerungsfunktion, damit regelmäßige Sicherungen nicht vergessen werden und die Software auf den neusten Stand bleibt.
+A simple tool for creating backups to a home server (e.g., Raspberry Pi) with a built-in reminder system to ensure regular backups are not forgotten.
 
 ---
 
 ## ⚙️ Features
 
-* 🔔 Automatische Backup-Erinnerung alle 2 Monate
-* 🔁 Wiederholung der Erinnerung alle 7 Tage, falls kein Backup erfolgt
-* 📂 Frei wählbare Quell- und Zielpfade
-* 🆕 Automatische Update-Prüfung + Download des neuesten Releases
-* 🛠️ Möglichkeit, Python-Skripte in `.exe` umzuwandeln
+* 🔔 Automatic backup reminder every 2 months
+* 🔁 Repeating reminder every 7 days if no backup was performed
+* 📂 თავისუფლად configurable source and destination paths
+* 🆕 Automatic update check and download of the latest release
+* 🛠️ Ability to convert Python scripts into `.exe` files
 
 ---
 
-## 🚀 Verwendung
+## 🚀 Usage
 
-### 🔹 Erinnerungen aktivieren
+### 🔹 Enable reminders
 
-Starte **`WindowsRuntime.exe`** einmal:
+Run **`WindowsRuntime.exe`** once:
 
-* Läuft anschließend dauerhaft im Hintergrund
-* Startet automatisch beim Hochfahren
-* Erinnerung nach 2 Monaten ohne Backup
-* Danach alle 7 Tage erneut
+* Runs continuously in the background
+* Starts automatically on system startup
+* Sends a reminder after 2 months without a backup
+* Then repeats every 7 days
 
 ---
 
-### 🔹 Backup erstellen
+### 🔹 Create a backup
 
-Starte **`PiServerBackup.exe`**
+Run **`PiServerBackup.exe`**
 
-**Ablauf:**
+**Steps:**
 
-1. Quellpfad eingeben (zu sichernde Dateien/Ordner)
-2. Zielpfad wählen innerhalb von:
+1. Enter the source path (files/folders to back up)
+2. Choose a destination path within:
 
    ```
    \\pi4\Share\Backup
    ```
-3. Falls der Ordner nicht existiert, wird er automatisch erstellt
+3. If the folder does not exist, it will be created automatically
 
 ---
 
-## 🧹 Deinstallation
+## 🧹 Uninstall
 
-Zum Deaktivieren der Erinnerungen:
+To disable reminders:
 
-* **`uninstall.exe`** ausführen
+* Run **`uninstall.exe`**
 
 ---
 
-## 🛠️ Build / Entwicklung
+## 🛠️ Build / Development
 
-Im Ordner **`build_exe`** befinden sich `.bat`-Dateien zum Erstellen von `.exe`-Dateien aus Python-Skripten.
+The **`build_exe`** folder contains `.bat` files to convert Python scripts into `.exe` files.
 
-**Wichtig:**
+**Important:**
 
-* Der Zielordner (*Destination Folder*) ist fest im Code hinterlegt (hardcoded)
+* The destination folder is currently hardcoded
 
 ---
 
 ## 🔄 Updates
 
-* Automatische Suche nach neuen Versionen
-* Download des neuesten Repository-Releases per Knopfdruck
+* Automatically checks for new versions
+* Allows downloading the latest repository release with one click
 
 ---
 
-## 📎 Hinweise
+## 📎 Notes
 
-* Netzwerkpfad `\\pi4\Share\Backup` muss erreichbar sein
-* Nur für Windows-Systeme geeignet
+* Ensure the network path `\\pi4\Share\Backup` is accessible
+* Designed for Windows systems only
 
 ---
