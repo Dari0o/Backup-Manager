@@ -6,7 +6,7 @@
 
 ## 📌 Übersicht
 
-Ein einfaches Tool zum Erstellen von Backups auf einem Home-Server (z. B. Raspberry Pi) mit integrierter Erinnerungsfunktion, damit regelmäßige Sicherungen nicht vergessen werden.
+Ein einfaches Tool zum Erstellen von Backups auf einem Home-Server (z. B. Raspberry Pi) mit integrierter Erinnerungsfunktion, damit regelmäßige Sicherungen nicht vergessen werden und die Software auf den neusten Stand bleibt.
 
 ---
 
