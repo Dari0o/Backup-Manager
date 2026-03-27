@@ -25,9 +25,9 @@ Home Server Backup - by Dario
 
 Öffnen Sie die uninstall.exe Datei um Benachrichtigungen zu deaktivieren.
 
-Führen sie die .bat Dateien im build_exe Ordner aus um 
+Führen sie die .bat Dateien im build_exe Ordner aus um Python Dateien in .exe Dateien umzuwandeln. 
 
-Python Dateien in .exe Dateien umzuwandeln. (Destination Folder ist gehardcoded)
+(Destination Folder ist gehardcoded)
 
 
 Das Programm sucht automatisch nach updates und läd auf knopfdruck
