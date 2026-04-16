@@ -1,706 +1,348 @@
+"""
+Überarbeitetes WindowsRuntime.py - Hauptausführung für Windows-Benachrichtigungen
+"""
+
 import threading
 import time
 import json
-from datetime import datetime, timedelta
-from winotify import Notification
 import sys
 import os
-import BackupManager as bm
 import winreg
 import requests
 import zipfile
 import shutil
-import subprocess
+from datetime import datetime, timedelta
+import re
 
-# ----------------------------
-# Einstellungen
-# ----------------------------
-CHECK_INTERVAL = 3600  # Sekunden zwischen Checks (1 Stunde)
-MAX_DAYS = 64           # Tage nach denen erinnert wird
-LOG_FILE = bm.BackupManager.log_file
-GITHUB_REPO = "Dari0o/Backup-Manager"  # GitHub Repository im Format owner/repo
+# Import des neuen Notification-Systems
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import BackupManager as bm
+from lib.notifications import NotificationManager
+
+# ========================
+# Konfiguration
+# ========================
+CHECK_INTERVAL = 3600
+MAX_DAYS = 64
+UPDATE_CHECK_INTERVAL = 3600
+
+GITHUB_REPO = "Dari0o/Backup-Manager"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
-UPDATE_CHECK_INTERVAL = 3600  # Sekunden zwischen Update-Checks (1 Stunde)
-last_notification_time = None
 
-# Dynamische Config-Dateien (funktioniert auch wenn als .exe kompiliert)
+
 def _get_config_dir():
-    """Bestimmt das echte Konfigurationsverzeichnis"""
+    """Bestimmen Sie das Konfigurationsverzeichnis."""
     if getattr(sys, 'frozen', False):
-        # Als .exe kompiliert - suche das echte Installationsverzeichnis
-        exe_path = sys.executable
-        exe_dir = os.path.dirname(exe_path)
-        
-        # Wenn im Temp-Verzeichnis, nutze BackupManager's Installationsort
+        exe_dir = os.path.dirname(sys.executable)
         if "_MEI" in exe_dir or "Temp" in exe_dir:
-            # Versuche aus BackupManager.log_file Pfad abzuleiten
             if hasattr(bm.BackupManager, 'log_file'):
                 log_dir = os.path.dirname(bm.BackupManager.log_file)
                 if os.path.exists(log_dir):
                     return log_dir
-        
         return exe_dir
-    else:
-        # Als Script - nutze __file__
-        return os.path.dirname(os.path.abspath(__file__))
+    return os.path.dirname(os.path.abspath(__file__))
+
 
 _CONFIG_DIR = _get_config_dir()
-CONFIG_FILE = os.path.join(_CONFIG_DIR, "reminder_config.json")
-UPDATE_CONFIG_FILE = os.path.join(_CONFIG_DIR, "update_config.json")
-UPDATE_TRIGGER_FILE = os.path.join(_CONFIG_DIR, "_update_trigger.json")
-PENDING_RELEASE_FILE = os.path.join(_CONFIG_DIR, "_pending_release.json")
-# Konsole verstecken (nur bei .exe)
-# ----------------------------
-def hide_console():
-    """Versteckt die Konsole wenn das Script als .exe läuft"""
-    if getattr(sys, 'frozen', False):  # Nur wenn als .exe kompiliert
-        import ctypes
-        import subprocess
-        # Aktuelle Konsole verstecken
-        ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 0)
+CONFIG_DIR = os.path.join(_CONFIG_DIR, "config")
 
-# ----------------------------
-# Autostart sicherstellen
-# ----------------------------
+# Stelle sicher, dass das config-Verzeichnis existiert
+os.makedirs(CONFIG_DIR, exist_ok=True)
+
+# Initialisiere Notification Manager
+notification_manager = NotificationManager(bm.BackupManager.log, CONFIG_DIR)
+
+
+# ========================
+# Hilfsfunktionen
+# ========================
+
+def hide_console():
+    """Verstecke das Konsolen-Fenster auf Windows."""
+    if getattr(sys, 'frozen', False):
+        try:
+            import ctypes
+            ctypes.windll.user32.ShowWindow(
+                ctypes.windll.kernel32.GetConsoleWindow(), 0
+            )
+        except Exception:
+            pass
+
+
 def ensure_autostart():
-    """Registriert die .exe/das Script im Windows Autostart"""
+    """Stelle sicher, dass das Skript beim Start ausgeführt wird."""
     try:
-        task_name = "NAS Backup Reminder"
-        
-        # Wenn als .exe kompiliert, direkt exe-Pfad benutzen
+        task_name = "NAS Backup Manager"
         if getattr(sys, 'frozen', False):
             exe_path = sys.executable
         else:
-            # Wenn als Script, pythonw.exe benutzen (ohne Konsole)
-            pythonw_path = sys.executable.replace("python.exe", "pythonw.exe")
-            exe_path = f'"{pythonw_path}" "{os.path.abspath(__file__)}"'
+            pythonw = sys.executable.replace("python.exe", "pythonw.exe")
+            exe_path = f'"{pythonw}" "{os.path.abspath(__file__)}"'
 
-        # Registry-Pfad für Autostart
-        startup_key = winreg.HKEY_CURRENT_USER
-        startup_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
-        
-        # Registry öffnen/erstellen
-        key = winreg.CreateKey(startup_key, startup_path)
+        key = winreg.CreateKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Run"
+        )
         try:
-            # Prüfen, ob Eintrag existiert
             existing = winreg.QueryValueEx(key, task_name)
-            # Nur aktualisieren, wenn Pfad anders ist
             if existing[0] != exe_path:
                 winreg.SetValueEx(key, task_name, 0, winreg.REG_SZ, exe_path)
         except WindowsError:
-            # Key existiert noch nicht → setzen
             winreg.SetValueEx(key, task_name, 0, winreg.REG_SZ, exe_path)
         finally:
             winreg.CloseKey(key)
-            
-        bm.BackupManager.log("✓ Autostart erfolgreich registriert")
-    except Exception as e:
-        bm.BackupManager.log(f"✗ Autostart konnte nicht gesetzt werden: {e}")
 
-# ----------------------------
-# Protocol Handler für Snooze-Button registrieren
-# ----------------------------
-def get_installation_directory():
-    """Bestimmt das echte Installationsverzeichnis (nicht Temp)"""
-    return _get_config_dir()
+        bm.BackupManager.log("✓ Autostart registriert")
+    except Exception as e:
+        bm.BackupManager.log(f"✗ Autostart-Fehler: {e}")
+
 
 def register_protocol_handlers():
-    """Registriert Protocol Handler für Buttons"""
+    """
+    Registriere URL-Protocol Handler für snooze_7days://, backup_now:// und update_now://
+    """
     try:
-        # Bestimme das echte Installationsverzeichnis
-        script_dir = get_installation_directory()
-        bm.BackupManager.log(f"DEBUG: Installationsverzeichnis = {script_dir}")
-        
-        # Bestimme Python-Executable - nutze pythonw.exe für Update Handler (ohne Konsole)
+        script_dir = _get_config_dir()
         if getattr(sys, 'frozen', False):
             python_exe = sys.executable
         else:
-            # Für Scripts: nutze pythonw.exe (ohne Konsole)
             python_exe = sys.executable.replace("python.exe", "pythonw.exe")
             if not os.path.exists(python_exe):
                 python_exe = sys.executable
-        
-        hkey = winreg.HKEY_CURRENT_USER
-        
-        # Handler registrieren
+
         handlers = {
-            "snooze_7days://": {
+            "snooze_7days": {
                 "script": "snooze_reminder",
                 "description": "Snooze NAS Backup Reminder"
             },
-            "backup_now://": {
+            "backup_now": {
                 "script": "backup_now",
                 "description": "Start NAS Backup Now"
             },
-            "update_now://": {
+            "update_now": {
                 "script": "update_handler",
-                "description": "Update WindowsRuntime"
-            }
+                "description": "Download and install NAS Backup Update"
+            },
         }
-        
-        for protocol, info in handlers.items():
-            protocol_name = protocol.replace("://", "")
+
+        for protocol_name, info in handlers.items():
             script_base = info["script"]
-            
-            # Versuche .exe zu finden (wenn als exe kompiliert)
             script_exe = os.path.join(script_dir, f"{script_base}.exe")
             script_py = os.path.join(script_dir, f"{script_base}.py")
-            
-            # Nutze .exe wenn vorhanden, sonst .py
+
             if os.path.exists(script_exe):
-                script_path = script_exe
                 command = f'"{script_exe}"'
-                bm.BackupManager.log(f"DEBUG: Nutze .exe für {protocol_name}: {script_exe}")
             elif os.path.exists(script_py):
-                script_path = script_py
                 command = f'"{python_exe}" "{script_py}"'
-                bm.BackupManager.log(f"DEBUG: Nutze .py für {protocol_name}: {script_py}")
             else:
-                bm.BackupManager.log(f"⚠ Script nicht gefunden (.exe oder .py): {script_base} in {script_dir}")
-                bm.BackupManager.log(f"  Versuchte Pfade: {script_exe} oder {script_py}")
+                bm.BackupManager.log(f"⚠ Script nicht gefunden: {script_base}")
                 continue
-            
+
             protocol_path = rf"Software\Classes\{protocol_name}"
-            
-            key = winreg.CreateKey(hkey, protocol_path)
+            key = winreg.CreateKey(winreg.HKEY_CURRENT_USER, protocol_path)
             try:
-                # Standard Value setzen
                 winreg.SetValueEx(key, "", 0, winreg.REG_SZ, f"URL:{info['description']}")
-                
-                # URL-Protokoll-Flag
                 winreg.SetValueEx(key, "URL Protocol", 0, winreg.REG_SZ, "")
-                
-                # Shell\Open\command registrieren
-                shell_key = winreg.CreateKey(hkey, protocol_path + r"\shell\open\command")
+                shell_key = winreg.CreateKey(
+                    winreg.HKEY_CURRENT_USER,
+                    protocol_path + r"\shell\open\command"
+                )
                 winreg.SetValueEx(shell_key, "", 0, winreg.REG_SZ, command)
                 winreg.CloseKey(shell_key)
-                
-                bm.BackupManager.log(f"✓ Protocol Handler registriert: {protocol_name}:// -> {os.path.basename(script_path)}")
-                bm.BackupManager.log(f"  Command: {command}")
+                bm.BackupManager.log(f"✓ Protocol Handler registriert: {protocol_name}://")
             except Exception as e:
-                bm.BackupManager.log(f"✗ Fehler beim Registrieren von {protocol_name}://: {e}")
+                bm.BackupManager.log(f"✗ Fehler bei {protocol_name}://: {e}")
             finally:
                 winreg.CloseKey(key)
+
     except Exception as e:
-        bm.BackupManager.log(f"✗ Fehler bei der Protocol Handler Registrierung: {e}")
+        bm.BackupManager.log(f"✗ Fehler bei Protocol Handler: {e}")
 
 
-# ----------------------------# Update-Konfiguration laden/speichern
-# ----------------------------
-def load_update_config():
-    """Lädt die Update-Konfiguration"""
-    try:
-        if os.path.exists(UPDATE_CONFIG_FILE):
-            with open(UPDATE_CONFIG_FILE, "r", encoding="utf-8") as f:
-                config = json.load(f)
-                if "last_check" in config and config["last_check"]:
-                    config["last_check"] = datetime.fromisoformat(config["last_check"])
-                return config
-    except Exception:
-        pass
-    
-    return {
-        "last_check": None,
-        "last_known_version": None,
-        "ignored_version": None
-    }
-
-def save_update_config(config):
-    """Speichert die Update-Konfiguration"""
-    try:
-        save_data = config.copy()
-        if save_data["last_check"]:
-            save_data["last_check"] = save_data["last_check"].isoformat()
-        
-        os.makedirs(os.path.dirname(UPDATE_CONFIG_FILE), exist_ok=True)
-        with open(UPDATE_CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(save_data, f, indent=4, ensure_ascii=False)
-    except Exception as e:
-        bm.BackupManager.log(f"✗ Fehler beim Speichern der Update-Konfiguration: {e}")
-
-# ----------------------------
+# ========================
 # GitHub Release Check
-# ----------------------------
+# ========================
+
 def get_latest_release():
-    """Lädt die neueste Release-Information von GitHub"""
+    """
+    Hole das neueste Release von GitHub API.
+    
+    Returns:
+        Dict mit Version, Download-URL, etc. oder None bei Fehler
+    """
     try:
         response = requests.get(GITHUB_API_URL, timeout=10)
         response.raise_for_status()
-        
         data = response.json()
         return {
             "version": data["tag_name"],
             "download_url": data["assets"][0]["browser_download_url"] if data["assets"] else None,
             "release_name": data["name"],
-            "body": data["body"]
+            "body": data.get("body", ""),
         }
     except Exception as e:
-        bm.BackupManager.log(f"✗ Fehler beim Abrufen des neuesten Releases: {e}")
+        bm.BackupManager.log(f"✗ Fehler beim Abrufen des Releases: {e}")
         return None
+
 
 def check_for_update():
-    """Prüft ob ein neues Update verfügbar ist"""
-    config = load_update_config()
+    """
+    Prüfe auf verfügbare Updates.
+    
+    Returns:
+        release_info Dict wenn neue Version verfügbar, sonst None
+    """
+    config = notification_manager.load_update_config()
     now = datetime.now()
-    
-    # Prüfe nicht öfter als UPDATE_CHECK_INTERVAL
+
+    # Prüfe Interval - nur alle UPDATE_CHECK_INTERVAL Sekunden prüfen
     if config["last_check"] and now - config["last_check"] < timedelta(seconds=UPDATE_CHECK_INTERVAL):
-        time_remaining = UPDATE_CHECK_INTERVAL - (now - config["last_check"]).total_seconds()
         return None
-    
+
     bm.BackupManager.log("=" * 60)
-    bm.BackupManager.log("Prüfe auf Updates...")
-    bm.BackupManager.log(f"  last_known_version: {config.get('last_known_version', 'KEINE')}")
-    bm.BackupManager.log(f"  ignored_version: {config.get('ignored_version', 'KEINE')}")
+    bm.BackupManager.log("🔍 Prüfe auf Updates...")
+
     config["last_check"] = now
-    save_update_config(config)
-    
+    notification_manager.save_update_config(config)
+
     latest = get_latest_release()
     if not latest:
-        bm.BackupManager.log("✗ Konnte neueste Release-Info nicht laden")
+        bm.BackupManager.log("✗ Konnte Release-Info nicht laden")
         bm.BackupManager.log("=" * 60)
         return None
-    
-    bm.BackupManager.log(f"  Verfügbare Version: {latest['version']}")
-    
-    # Vergleiche Versionen
-    if config["last_known_version"] == latest["version"]:
-        bm.BackupManager.log(f"✓ Version bereits bekannt ({latest['version']}) - keine neue Notification")
-        bm.BackupManager.log("=" * 60)
-        return None  # Keine neue Version
-    
-    # Prüfe ob diese Version ignoriert wurde
-    if config["ignored_version"] == latest["version"]:
-        bm.BackupManager.log(f"⊘ Version {latest['version']} wurde vom Benutzer ignoriert")
+
+    bm.BackupManager.log(f"  💾 Verfügbare Version: {latest['version']}")
+    bm.BackupManager.log(f"  📦 Letzte Anzeige    : {config.get('notification_shown_version', 'KEINE')}")
+
+    # Prüfe ob diese Version bereits angezeigt wurde
+    if config.get("notification_shown_version") == latest["version"]:
+        bm.BackupManager.log(f"✓ Update {latest['version']} bereits angezeigt")
         bm.BackupManager.log("=" * 60)
         return None
-    
-    bm.BackupManager.log(f"✓ NEUES UPDATE VERFÜGBAR: {latest['version']}")
-    bm.BackupManager.log(f"  Alte bekannte Version: {config.get('last_known_version', 'KEINE')}")
-    bm.BackupManager.log(f"  Neue Version: {latest['version']}")
-    config["last_known_version"] = latest["version"]
-    save_update_config(config)
+
+    bm.BackupManager.log(f"✓ 🎉 NEUES UPDATE: {latest['version']}")
     bm.BackupManager.log("=" * 60)
-    
+
     return latest
 
-def show_update_notification(release_info):
-    """Zeigt eine Update-Benachrichtigung mit Button"""
-    try:
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        
-        # Speichere Release-Info für später Verwendung
-        with open(PENDING_RELEASE_FILE, "w") as f:
-            json.dump({
-                "version": release_info['version'],
-                "release_name": release_info['release_name'],
-                "download_url": release_info['download_url'],
-                "body": release_info['body'],
-                "timestamp": datetime.now().isoformat()
-            }, f)
-        
-        bm.BackupManager.log(f"✓ Release-Info gespeichert in {PENDING_RELEASE_FILE}")
-        bm.BackupManager.log(f"✓ Update-Benachrichtigung wird angezeigt für Version {release_info['version']}")
-        
-        toast = Notification(
-            app_id="NAS Backup",
-            title="Update verfügbar",
-            msg=f"Version {release_info['version']} ist verfügbar!\n\n{release_info['release_name']}"
-        )
-        
-        # Füge Button hinzu - möglicherweise wird das Button-Click über Update-Trigger-File erkannt
-        try:
-            toast.add_actions(label="Jetzt aktualisieren", launch="update_now://")
-            bm.BackupManager.log("✓ Update Button mit Protocol Handler hinzugefügt")
-        except Exception as e:
-            bm.BackupManager.log(f"⚠ Konnte Button nicht mit Protocol Handler hinzufügen: {e}")
-        
-        toast.show()
-        bm.BackupManager.log("✓ Update-Benachrichtigung angezeigt - bitte auf 'Jetzt aktualisieren' klicken")
-        
-    except Exception as e:
-        bm.BackupManager.log(f"✗ Fehler beim Anzeigen der Update-Benachrichtigung: {e}")
 
-def perform_update(release_info):
-    """Lädt und installiert das Update"""
-    try:
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        temp_dir = os.path.join(script_dir, "_update_temp")
-        
-        # Temp-Verzeichnis erstellen
-        os.makedirs(temp_dir, exist_ok=True)
-        
-        bm.BackupManager.log(f"Lade Update {release_info['version']} herunter...")
-        
-        # Download der Release
-        response = requests.get(release_info["download_url"], timeout=30, stream=True)
-        response.raise_for_status()
-        
-        zip_path = os.path.join(temp_dir, "update.zip")
-        with open(zip_path, "wb") as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
-        
-        bm.BackupManager.log("✓ Update heruntergeladen, entpacke...")
-        
-        # Entpacke die ZIP
-        extract_dir = os.path.join(temp_dir, "extracted")
-        with zipfile.ZipFile(zip_path, "r") as zip_ref:
-            zip_ref.extractall(extract_dir)
-        
-        # Suche die internal Ordner (die aktuelle Struktur)
-        internal_source = None
-        for root, dirs, files in os.walk(extract_dir):
-            if "internal" in dirs:
-                internal_source = os.path.join(root, "internal")
-                break
-        
-        if not internal_source or not os.path.exists(internal_source):
-            bm.BackupManager.log("✗ Update konnte nicht entpackt werden (internal Ordner nicht gefunden)")
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            return False
-        
-        # Backup der alten Dateien erstellen
-        backup_dir = os.path.join(script_dir, ".backup_old")
-        if os.path.exists(backup_dir):
-            shutil.rmtree(backup_dir, ignore_errors=True)
-        
-        bm.BackupManager.log("Erstelle Backup der alten Dateien...")
-        # Backup ALLER Dateien (Python, Batch, Spec, etc.)
-        os.makedirs(backup_dir, exist_ok=True)
-        for item in os.listdir(script_dir):
-            if item.startswith("_") or item == ".backup_old":
-                continue  # Ignoriere Temp-Dateien
-            src_path = os.path.join(script_dir, item)
-            dst_path = os.path.join(backup_dir, item)
-            if os.path.isfile(src_path):
-                shutil.copy2(src_path, dst_path)
-            elif os.path.isdir(src_path) and not item == "__pycache__":
-                shutil.copytree(src_path, dst_path, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
-        
-        bm.BackupManager.log("✓ Backup erstellt, kopiere ALLE neuen Dateien...")
-        # Kopiere die neuen Dateien - alles aus internal wird kopiert
-        for item in os.listdir(internal_source):
-            src = os.path.join(internal_source, item)
-            dst = os.path.join(script_dir, item)
-            
-            # Lösche alte Version
-            if os.path.exists(dst):
-                if os.path.isfile(dst):
-                    os.remove(dst)
-                elif os.path.isdir(dst):
-                    shutil.rmtree(dst)
-            
-            # Kopiere neue Version
-            if os.path.isfile(src):
-                shutil.copy2(src, dst)
-                bm.BackupManager.log(f"  ✓ Datei aktualisiert: {item}")
-            elif os.path.isdir(src):
-                shutil.copytree(src, dst, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
-                bm.BackupManager.log(f"  ✓ Verzeichnis aktualisiert: {item}")
-        
-        # Aktualisiere Autostart mit neuem Pfad
-        bm.BackupManager.log("Aktualisiere Autostart...")
-        ensure_autostart()
-        
-        # Cleanup
-        shutil.rmtree(temp_dir, ignore_errors=True)
-        
-        bm.BackupManager.log(f"✓ Update zu {release_info['version']} erfolgreich durchgeführt!")
-        
-        # Update-Konfiguration aktualisieren - WICHTIG: last_known_version setzen damit keine neue Notification angezeigt wird
-        config = load_update_config()
-        config["last_known_version"] = release_info['version']  # Setze auf aktuelle Version um erneute Notifications zu vermeiden
-        config["ignored_version"] = None
-        config["last_check"] = datetime.now()  # Aktualisiere auch last_check
-        save_update_config(config)
-        
-        bm.BackupManager.log(f"✓ Update-Konfiguration aktualisiert")
-        bm.BackupManager.log(f"  - last_known_version: {release_info['version']}")
-        bm.BackupManager.log(f"  - Nächste Notification wird für eine NEUE Version angezeigt")
-        
-        # Cleanup: Lösche pending-Dateien
-        for pending_file in [PENDING_RELEASE_FILE, UPDATE_TRIGGER_FILE]:
-            if os.path.exists(pending_file):
-                try:
-                    os.remove(pending_file)
-                    bm.BackupManager.log(f"✓ Cleanup: {os.path.basename(pending_file)} gelöscht")
-                except Exception as e:
-                    bm.BackupManager.log(f"⚠ Konnte {os.path.basename(pending_file)} nicht löschen: {e}")
-        
-        return True
-        
-    except Exception as e:
-        bm.BackupManager.log(f"✗ Fehler beim Update: {e}")
-        return False
+# ========================
+# Update-Durchführung
+# ========================
 
-# ----------------------------# Letztes Backup aus Log lesen
-# ----------------------------
+# ========================
+# Backup-Erinnerung
+# ========================
+
 def get_last_backup():
+    """
+    Hole Zeitstempel des letzten erfolgreichen Backups aus Log-Datei.
+    
+    Returns:
+        datetime oder None wenn kein Backup gefunden
+    """
     try:
-        import re
         last_time = None
-        with open(LOG_FILE, "r", encoding="utf-8") as f:
+        with open(bm.BackupManager.log_file, "r", encoding="utf-8") as f:
             for line in f:
                 if "=== Script gestartet ===" in line:
                     match = re.search(r"\[(.*?)\]", line)
                     if match:
-                        timestamp = match.group(1)
                         try:
-                            last_time = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
-                        except:
+                            last_time = datetime.strptime(match.group(1), "%Y-%m-%d %H:%M:%S")
+                        except Exception:
                             pass
         return last_time
     except Exception:
         return None
 
-# ----------------------------
-# Konfiguration laden/speichern
-# ----------------------------
-def load_reminder_config():
-    """Lädt die Erinnerungs-Konfiguration"""
-    try:
-        if os.path.exists(CONFIG_FILE):
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                config = json.load(f)
-                # Konvertiere String zurück zu datetime
-                if "next_reminder_time" in config and config["next_reminder_time"]:
-                    config["next_reminder_time"] = datetime.fromisoformat(config["next_reminder_time"])
-                return config
-    except Exception:
-        pass
-    
-    return {
-        "next_reminder_time": None,
-        "last_action": None  # "snooze_7days" oder "dismissed"
-    }
 
-def save_reminder_config(config):
-    """Speichert die Erinnerungs-Konfiguration"""
-    try:
-        save_data = config.copy()
-        # Konvertiere datetime zu String
-        if save_data["next_reminder_time"]:
-            save_data["next_reminder_time"] = save_data["next_reminder_time"].isoformat()
-        
-        os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(save_data, f, indent=4, ensure_ascii=False)
-    except Exception as e:
-        bm.BackupManager.log(f"✗ Fehler beim Speichern der Konfiguration: {e}")
-
-def snooze_reminder(days=7):
-    """Verschiebt die nächste Erinnerung um X Tage"""
-    config = load_reminder_config()
-    config["next_reminder_time"] = datetime.now() + timedelta(days=days)
-    config["last_action"] = "snooze_7days"
-    save_reminder_config(config)
-    bm.BackupManager.log(f"✓ Erinnerung um {days} Tage verschoben bis {config['next_reminder_time'].strftime('%Y-%m-%d %H:%M:%S')}")
-
-# ----------------------------
-# Notification anzeigen
-# ----------------------------
-def show_notification(days):
-    global last_notification_time
-    
-    if days == float('inf'):
-        msg = "Noch kein Backup vorhanden. Bitte Backup durchführen!"
-    else:
-        msg = f"Letztes Backup ist {int(round(days))} Tage her. Bitte Backup durchführen!"
-    
-    toast = Notification(
-        app_id="NAS Backup",
-        title="NAS Backup Erinnerung",
-        msg=msg
-    )
-    
-    # Ein Button hinzufügen
-    try:
-        toast.add_actions(label="In 7 Tagen erinnern", 
-                          launch="snooze_7days://")
-    except Exception:
-        # Falls add_actions nicht unterstützt wird, zeige einfach die Notification ohne Buttons
-        pass
-    
-    toast.show()
-    last_notification_time = datetime.now()
-
-
-
-# ----------------------------
-# Backup prüfen
-# ----------------------------
 def check_backup():
-    global last_notification_time
-    
-    config = load_reminder_config()
+    """
+    Prüfe ob Backup-Erinnerung angezeigt werden soll.
+    """
+    config = notification_manager.load_reminder_config()
     last_backup = get_last_backup()
     now = datetime.now()
 
-    # Prüfen ob die Snooze-Zeit noch aktiv ist
-    if config["next_reminder_time"] and now < config["next_reminder_time"]:
-        # Snooze-Zeit noch nicht vorbei → Keine Erinnerung
+    # Prüfe ob Erinnerung verschoben wurde
+    if config.get("next_reminder_time") and now < config["next_reminder_time"]:
         return
 
-    # Wenn noch kein Backup gefunden
     if last_backup is None:
-        if last_notification_time is None or now - last_notification_time > timedelta(days=1):
-            show_notification(float('inf'))
+        notification_manager.show_backup_reminder(float("inf"))
         return
 
     delta_days = (now - last_backup).total_seconds() / 86400
-    
-    # Wenn Backup zu alt ist
+
     if delta_days >= MAX_DAYS:
-        # Täglich erinnern, wenn keine Snooze aktiv ist
-        if last_notification_time is None or now - last_notification_time > timedelta(days=1):
-            show_notification(delta_days)
+        notification_manager.show_backup_reminder(delta_days)
     else:
-        # Backup ist aktuell → Reset der Konfiguration
-        config["next_reminder_time"] = None
-        config["last_action"] = None
-        save_reminder_config(config)
+        # Backup ist aktuell, zurücksetzen
+        if config.get("next_reminder_time") or config.get("last_notification_sent_at"):
+            notification_manager.reset_backup_reminder()
 
 
-# ----------------------------
-# Update Trigger Prüfung
-# ----------------------------
-def check_update_trigger():
-    """Prüft ob ein Update ausgelöst wurde und führt es durch"""
-    try:
-        # Prüfe ob Update-Trigger-Datei existiert
-        if os.path.exists(UPDATE_TRIGGER_FILE):
-            try:
-                with open(UPDATE_TRIGGER_FILE, "r") as f:
-                    trigger_data = json.load(f)
-                os.remove(UPDATE_TRIGGER_FILE)
-                
-                bm.BackupManager.log("✓ Update-Trigger erkannt!")
-                # Führe Update mit den gespeicherten Daten aus
-                if "release_info" in trigger_data:
-                    bm.BackupManager.log("Starte Update...")
-                    perform_update(trigger_data["release_info"])
-            except Exception as e:
-                bm.BackupManager.log(f"✗ Fehler beim Verarbeiten des Update-Triggers: {e}")
-        
-        # Alternative: Prüfe ob Release-Info mit gespeicherter Zeit vorhanden ist
-        if os.path.exists(PENDING_RELEASE_FILE):
-            try:
-                with open(PENDING_RELEASE_FILE, "r") as f:
-                    release_data = json.load(f)
-                
-                # Prüfe ob die Nachricht älter als 60 Sekunden ist (Hinweis dass Button geklickt wurde)
-                timestamp = datetime.fromisoformat(release_data["timestamp"])
-                if datetime.now() - timestamp > timedelta(seconds=3) and datetime.now() - timestamp < timedelta(minutes=5):
-                    # Wahrscheinlich wurde der Button geklickt
-                    bm.BackupManager.log("✓ Update-Button Klick erkannt!")
-                    os.remove(PENDING_RELEASE_FILE)
-                    
-                    # Baue Release-Info zurück
-                    release_info = {
-                        "version": release_data["version"],
-                        "release_name": release_data["release_name"],
-                        "download_url": release_data["download_url"],
-                        "body": release_data["body"]
-                    }
-                    bm.BackupManager.log(f"Starte Update zu Version {release_info['version']}...")
-                    perform_update(release_info)
-            except Exception as e:
-                bm.BackupManager.log(f"⚠ Fehler bei Button-Click Detection: {e}")
-    except Exception as e:
-        bm.BackupManager.log(f"✗ Fehler in update trigger check: {e}")
+# ========================
+# Haupt-Loops
+# ========================
 
-# ----------------------------
-# Update Loop (prüft auf Trigger)
-# ----------------------------
-def update_trigger_loop():
-    """Prüft regelmäßig auf Update-Trigger"""
-    while True:
-        try:
-            check_update_trigger()
-        except Exception as e:
-            bm.BackupManager.log(f"✗ Fehler im Update Trigger Loop: {e}")
-        time.sleep(2)  # Prüfe häufiger auf Trigger
 
-# ----------------------------
-# Update Check Loop
-# ----------------------------
 def update_check_loop():
-    """Prüft in regelmäßigen Abständen auf Updates"""
+    """
+    Haupt-Update-Check Loop.
+    Prüft regelmäßig auf verfügbare Updates und zeigt Benachrichtigung an.
+    """
     while True:
         try:
             release_info = check_for_update()
             if release_info:
-                show_update_notification(release_info)
+                notification_manager.show_update_notification(release_info)
         except Exception as e:
-            bm.BackupManager.log(f"✗ Fehler im Update-Check Loop: {e}")
+            bm.BackupManager.log(f"✗ Fehler im Update-Check: {e}")
+        
         time.sleep(UPDATE_CHECK_INTERVAL)
 
-def background_loop():
+
+def backup_check_loop():
+    """
+    Haupt-Backup-Check Loop.
+    Prüft regelmäßig ob Backup-Erinnerung gezeigt werden soll.
+    """
     while True:
         try:
             check_backup()
-        except Exception:
-            pass
+        except Exception as e:
+            bm.BackupManager.log(f"✗ Fehler im Backup-Check: {e}")
+        
         time.sleep(CHECK_INTERVAL)
 
-# ----------------------------
-# Main
-# ----------------------------
+
+# ========================
+# Hauptprogramm
+# ========================
+
 def main():
-    # Konsole verstecken wenn als .exe
+    """Starten Sie das WindowsRuntime."""
     hide_console()
-    
-    # Autostart registrieren
     ensure_autostart()
-    
-    # Protocol Handler registrieren (Snooze + Backup + Update)
     register_protocol_handlers()
-    
-    # Update Trigger Loop Thread starten (prüft auf Button-Clicks)
-    trigger_thread = threading.Thread(target=update_trigger_loop, daemon=True)
-    trigger_thread.start()
-    
-    # Update-Check-Thread starten (Daemon)
-    update_thread = threading.Thread(target=update_check_loop, daemon=True)
-    update_thread.start()
-    
-    # Backup-Erinnerungs-Thread starten (Daemon)
-    t = threading.Thread(target=background_loop, daemon=True)
-    t.start()
-    
-    # App im Hintergrund am Laufen halten (mit minimaler CPU)
+
+    bm.BackupManager.log("=" * 60)
+    bm.BackupManager.log("🚀 WindowsRuntime gestartet")
+    bm.BackupManager.log("=" * 60)
+
+    # Starte alle Loops in separaten Threads
+    threading.Thread(target=update_check_loop, daemon=True).start()
+    threading.Thread(target=backup_check_loop, daemon=True).start()
+
     try:
         while True:
             time.sleep(10)
     except KeyboardInterrupt:
-        pass
+        bm.BackupManager.log("⏹ WindowsRuntime beendet")
 
-# ----------------------------
-# Test Function (nur für Debugging)
-# ----------------------------
-def test_update():
-    """Test-Funktion um Update-Funktionalität zu testen"""
-    bm.BackupManager.log("=" * 70)
-    bm.BackupManager.log("TEST: Update-Check wird durchgeführt...")
-    bm.BackupManager.log("=" * 70)
-    
-    release_info = get_latest_release()
-    if release_info:
-        bm.BackupManager.log(f"✓ Latest Release gefunden: {release_info['version']}")
-        bm.BackupManager.log(f"  Name: {release_info['release_name']}")
-        bm.BackupManager.log(f"  Download URL: {release_info['download_url']}")
-        print("\nUpdate-Benachrichtigung wird angezeigt...")
-        show_update_notification(release_info)
-    else:
-        bm.BackupManager.log("✗ Konnte Release-Informationen nicht laden")
 
-# ----------------------------
-# Script starten
-# ----------------------------
 if __name__ == "__main__":
-    # Überprüfe Parameter für Test-Modus
-    if len(sys.argv) > 1 and sys.argv[1] == "--test-update":
-        test_update()
-    else:
-        main()
+    main()
