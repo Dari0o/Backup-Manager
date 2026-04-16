@@ -1,7 +1,9 @@
 import os
 import shutil
+import json
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from unittest import case
 from tqdm import tqdm
 from prompt_toolkit import prompt
 from prompt_toolkit.completion import PathCompleter
@@ -13,6 +15,10 @@ class BackupManager:
     log_file = os.path.join(log_dir, "backup.log")
     THREADS = 8
 
+    setup_done = False
+    recieve_update_messages = True
+    recieve_backup_messages = True
+    backup_reminder_days = 7
 
     # ----------------------------
     # Logging
@@ -27,6 +33,66 @@ class BackupManager:
 
         with open(BackupManager.log_file, "a", encoding="utf-8") as f:
             f.write(entry + "\n")
+
+    
+    # ----------------------------
+    # setup
+    # ----------------------------    
+    @staticmethod
+    def setup():
+        setup_file = "setup.json"
+        
+        # Lade existierende Konfiguration
+        config = {}
+        if os.path.exists(setup_file):
+            with open(setup_file, "r", encoding="utf-8") as f:
+                config = json.load(f)
+        
+        # Wenn setup.json nicht existiert oder unvollständig, frage
+        if "recieve_update_messages" not in config or "recieve_backup_messages" not in config:
+            print("\n=== Setup ===\n")
+            
+            if "recieve_update_messages" not in config:
+                while True:
+                    choice = prompt("Möchten Sie Update Benachrichtigungen erhalten? (y/n): ").strip().lower()
+                    if choice in ["y", "n"]:
+                        config["recieve_update_messages"] = choice == "y"
+                        break
+                    else:
+                        print("Ungültige Eingabe. Bitte 'y' oder 'n' eingeben.")
+            
+            if "recieve_backup_messages" not in config:
+                while True:
+                    choice = prompt("Möchten Sie Backup-Erinnerungen erhalten? (y/n): ").strip().lower()
+                    if choice in ["y", "n"]:
+                        config["recieve_backup_messages"] = choice == "y"
+                        break
+                    else:
+                        print("Ungültige Eingabe. Bitte 'y' oder 'n' eingeben.")
+                
+                # Wenn ja, frage nach Intervall
+                if config["recieve_backup_messages"]:
+                    while True:
+                        try:
+                            days_input = prompt("Nach wie vielen Tagen erinnern? (z.B. 7): ").strip()
+                            days = int(days_input)
+                            if days > 0:
+                                config["backup_reminder_days"] = days
+                                break
+                            else:
+                                print("Bitte geben Sie eine positive Zahl ein.")
+                        except ValueError:
+                            print("Ungültige Eingabe. Bitte geben Sie eine ganze Zahl ein.")
+            
+            # Speichere in JSON
+            with open(setup_file, "w", encoding="utf-8") as f:
+                json.dump(config, f, indent=4, ensure_ascii=False)
+        
+        # Setze Klassenvariablen
+        BackupManager.recieve_update_messages = config.get("recieve_update_messages", True)
+        BackupManager.recieve_backup_messages = config.get("recieve_backup_messages", True)
+        BackupManager.backup_reminder_days = config.get("backup_reminder_days", 7)
+        BackupManager.setup_done = True
 
 
     # ----------------------------
@@ -181,6 +247,8 @@ R A S P B E R R Y   P I   N A S
       
         """)
 
+            BackupManager.setup()
+
             source_dir = prompt(
                 "Bitte den Source-Ordner eingeben: ",
                 completer=PathCompleter(expanduser=True, only_directories=True),
@@ -193,24 +261,22 @@ R A S P B E R R Y   P I   N A S
                 )
                 return
 
-            base_target_dir = r"\\pi4\Share\Backup"
-
             while True:
 
                 user_input = prompt(
-                    f"Bitte den Ziel-Ordner angeben (innerhalb von {base_target_dir}): ",
+                    f"Bitte den Ziel-Ordner angeben: ",
                     completer=PathCompleter(expanduser=True, only_directories=True),
                     complete_while_typing=True
                 ).strip()
 
-                target_dir = os.path.join(base_target_dir, user_input)
+                target_dir = os.path.join(user_input)
 
                 if os.path.commonpath(
-                    [os.path.abspath(target_dir), base_target_dir]
-                ) != os.path.abspath(base_target_dir):
+                    [os.path.abspath(target_dir)]
+                ) != os.path.abspath(target_dir):
 
-                    print(
-                        f"Fehler: Zielordner muss innerhalb von {base_target_dir} liegen!"
+                    BackupManager.log(
+                        f"FEHLER: Ziel-Ordner ungültig: {target_dir}"
                     )
                     continue
 
