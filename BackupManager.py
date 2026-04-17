@@ -4,9 +4,10 @@ import json
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from unittest import case
-from tqdm import tqdm
+import tqdm
 from prompt_toolkit import prompt
 from prompt_toolkit.completion import PathCompleter
+from lib import windows_reminder
 
 
 class BackupManager:
@@ -70,7 +71,7 @@ class BackupManager:
                     else:
                         print("Ungültige Eingabe. Bitte 'y' oder 'n' eingeben.")
                 
-                # Wenn ja, frage nach Intervall
+                
                 if config["recieve_backup_messages"]:
                     while True:
                         try:
@@ -93,11 +94,48 @@ class BackupManager:
         BackupManager.recieve_backup_messages = config.get("recieve_backup_messages", True)
         BackupManager.backup_reminder_days = config.get("backup_reminder_days", 7)
         BackupManager.setup_done = True
+        
+        # Registriere Autostart automatisch wenn mindestens eine Erinnerung aktiviert ist
+        if BackupManager.recieve_update_messages or BackupManager.recieve_backup_messages:
+            BackupManager._register_autostart()
 
 
     # ----------------------------
-    # Datei kopieren
+    # Autostart registrieren
     # ----------------------------
+    @staticmethod
+    def _register_autostart():
+        """Registriere windows_reminder im Windows Autostart (als .exe oder Python-Script)"""
+        try:
+            import winreg
+            import sys
+            
+            startup_key = r"Software\Microsoft\Windows\CurrentVersion\Run"
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            
+            # Versuche erste .exe Datei (falls als .exe kompiliert), sonst starten als Python-Script
+            windows_reminder_exe = os.path.join(script_dir, "lib", "windows_reminder.exe")
+            windows_reminder_py = os.path.join(script_dir, "lib", "windows_reminder.py")
+            
+            if os.path.exists(windows_reminder_exe):
+                # Starten als .exe
+                cmd = f'"{windows_reminder_exe}"'
+            else:
+                # Starten als Python-Script
+                python_exe = sys.executable
+                cmd = f'"{python_exe}" "{windows_reminder_py}"'
+            
+            key = winreg.CreateKey(winreg.HKEY_CURRENT_USER, startup_key)
+            winreg.SetValueEx(key, "BackupManager", 0, winreg.REG_SZ, cmd)
+            winreg.CloseKey(key)
+            BackupManager.log("Autostart registriert")
+            return True
+        except Exception as e:
+            BackupManager.log(f"Autostart Fehler: {e}")
+            return False
+
+
+
     @staticmethod
     def copy_file(src, dst_base, src_base, progress):
         rel = os.path.relpath(src, src_base)
