@@ -14,7 +14,7 @@ class BackupManager:
 
     log_dir = r"\\pi4\Share\Backup"
     log_file = os.path.join(log_dir, "backup.log")
-    THREADS = 8
+    THREADS = max(1, os.cpu_count() /2)  # Anzahl Threads für Multithreading (1 weniger als CPU-Kerne)
     VERSION = "1.0"  # Aktuelle Version
 
     setup_done = False
