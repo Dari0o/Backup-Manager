@@ -15,6 +15,7 @@ class BackupManager:
     log_dir = r"\\pi4\Share\Backup"
     log_file = os.path.join(log_dir, "backup.log")
     THREADS = 8
+    VERSION = "1.0"  # Aktuelle Version
 
     setup_done = False
 
@@ -52,6 +53,28 @@ class BackupManager:
     # ----------------------------
     # Update-Verwaltung
     # ----------------------------
+    @staticmethod
+    def get_current_version():
+        """Gibt die aktuelle Version zurück"""
+        return BackupManager.VERSION
+    
+    @staticmethod
+    def compare_versions(current, available):
+        """Vergleicht zwei Versionsnummern (z.B. '1.0.0' und '1.0.1')
+        Gibt True zurück wenn eine neuere Version verfügbar ist"""
+        try:
+            current_parts = [int(x) for x in current.split('.')]
+            available_parts = [int(x) for x in available.split('.')]
+            
+            # Pad with zeros if lengths differ
+            max_len = max(len(current_parts), len(available_parts))
+            current_parts += [0] * (max_len - len(current_parts))
+            available_parts += [0] * (max_len - len(available_parts))
+            
+            return available_parts > current_parts
+        except:
+            return False
+    
     @staticmethod
     def check_for_update():
         """Prüfe auf neue Version auf GitHub"""
@@ -411,6 +434,10 @@ R A S P B E R R Y   P I   N A S
 
             BackupManager.log("=== Script beendet ===")
 
+        except KeyboardInterrupt:
+
+            BackupManager.log("Abgebrochen durch Benutzer")
+
         except Exception as e:
 
             BackupManager.log(f"FEHLER: {e}")
@@ -437,11 +464,17 @@ if __name__ == "__main__":
             print("Keine neuen Updates verfügbar.")
     else:
         # Normaler Modus: Führe Backup durch
+        current_version = BackupManager.get_current_version()
+        print(f"BackupManager v{current_version}")
+        
         release_info = BackupManager.check_for_update()
         if release_info:
-            print(f"\nUpdate verfügbar: {release_info['version']}")
-            print(f"Um das Update zu installieren, führen Sie BackupManager.exe --update aus\n")
+            # Prüfe ob verfügbare Version neuer ist als aktuelle
+            if BackupManager.compare_versions(current_version, release_info['version']):
+                print(f"\n✓ Update verfügbar: v{release_info['version']}")
+                print(f"Um das Update zu installieren, führen Sie BackupManager.exe --update aus\n")
         
         BackupManager.main()
-        input("Drücken Sie Enter, um das Programm zu beenden...")
+        print("Programm beendet.") 
+
         
