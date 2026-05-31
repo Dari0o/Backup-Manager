@@ -1,13 +1,13 @@
 import os
 import shutil
 import json
+import sys
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from unittest import case
-import tqdm
+import tqdm as tqdm_
 from prompt_toolkit import prompt
 from prompt_toolkit.completion import PathCompleter
-from lib import windows_reminder
 
 
 class BackupManager:
@@ -17,9 +17,6 @@ class BackupManager:
     THREADS = 8
 
     setup_done = False
-    recieve_update_messages = True
-    recieve_backup_messages = True
-    backup_reminder_days = 7
 
     # ----------------------------
     # Logging
@@ -49,89 +46,92 @@ class BackupManager:
             with open(setup_file, "r", encoding="utf-8") as f:
                 config = json.load(f)
         
-        # Wenn setup.json nicht existiert oder unvollständig, frage
-        if "recieve_update_messages" not in config or "recieve_backup_messages" not in config:
-            print("\n=== Setup ===\n")
-            
-            if "recieve_update_messages" not in config:
-                while True:
-                    choice = prompt("Möchten Sie Update Benachrichtigungen erhalten? (y/n): ").strip().lower()
-                    if choice in ["y", "n"]:
-                        config["recieve_update_messages"] = choice == "y"
-                        break
-                    else:
-                        print("Ungültige Eingabe. Bitte 'y' oder 'n' eingeben.")
-            
-            if "recieve_backup_messages" not in config:
-                while True:
-                    choice = prompt("Möchten Sie Backup-Erinnerungen erhalten? (y/n): ").strip().lower()
-                    if choice in ["y", "n"]:
-                        config["recieve_backup_messages"] = choice == "y"
-                        break
-                    else:
-                        print("Ungültige Eingabe. Bitte 'y' oder 'n' eingeben.")
-                
-                
-                if config["recieve_backup_messages"]:
-                    while True:
-                        try:
-                            days_input = prompt("Nach wie vielen Tagen erinnern? (z.B. 7): ").strip()
-                            days = int(days_input)
-                            if days > 0:
-                                config["backup_reminder_days"] = days
-                                break
-                            else:
-                                print("Bitte geben Sie eine positive Zahl ein.")
-                        except ValueError:
-                            print("Ungültige Eingabe. Bitte geben Sie eine ganze Zahl ein.")
-            
-            # Speichere in JSON
-            with open(setup_file, "w", encoding="utf-8") as f:
-                json.dump(config, f, indent=4, ensure_ascii=False)
-        
-        # Setze Klassenvariablen
-        BackupManager.recieve_update_messages = config.get("recieve_update_messages", True)
-        BackupManager.recieve_backup_messages = config.get("recieve_backup_messages", True)
-        BackupManager.backup_reminder_days = config.get("backup_reminder_days", 7)
         BackupManager.setup_done = True
-        
-        # Registriere Autostart automatisch wenn mindestens eine Erinnerung aktiviert ist
-        if BackupManager.recieve_update_messages or BackupManager.recieve_backup_messages:
-            BackupManager._register_autostart()
 
 
     # ----------------------------
-    # Autostart registrieren
+    # Update-Verwaltung
     # ----------------------------
     @staticmethod
-    def _register_autostart():
-        """Registriere windows_reminder im Windows Autostart (als .exe oder Python-Script)"""
+    def check_for_update():
+        """Prüfe auf neue Version auf GitHub"""
         try:
-            import winreg
-            import sys
+            import requests
             
-            startup_key = r"Software\Microsoft\Windows\CurrentVersion\Run"
+            GITHUB_REPO = "Dari0o/Backup-Manager"
+            GITHUB_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+            
+            response = requests.get(GITHUB_API, timeout=5)
+            response.raise_for_status()
+            release_data = response.json()
+            
+            tag = release_data.get("tag_name", "").lstrip('v')
+            if not tag:
+                return None
+            
+            return {
+                "version": tag,
+                "release_name": release_data.get("name", ""),
+                "download_url": release_data.get("zipball_url", ""),
+                "body": release_data.get("body", ""),
+            }
+        except Exception as e:
+            BackupManager.log(f"Update Check Fehler: {e}")
+            return None
+    
+    @staticmethod
+    def install_update(release_info):
+        """Installiere neuen Release"""
+        try:
+            import requests
+            import zipfile
+            
+            BackupManager.log(f"Installiere Update {release_info['version']}...")
+            
             script_dir = os.path.dirname(os.path.abspath(__file__))
+            zip_path = os.path.join(script_dir, "update.zip")
+            response = requests.get(release_info["download_url"], timeout=30)
+            response.raise_for_status()
             
-            # Versuche erste .exe Datei (falls als .exe kompiliert), sonst starten als Python-Script
-            windows_reminder_exe = os.path.join(script_dir, "lib", "windows_reminder.exe")
-            windows_reminder_py = os.path.join(script_dir, "lib", "windows_reminder.py")
+            with open(zip_path, "wb") as f:
+                f.write(response.content)
             
-            if os.path.exists(windows_reminder_exe):
-                # Starten als .exe
-                cmd = f'"{windows_reminder_exe}"'
+            extract_dir = os.path.join(script_dir, "update_temp")
+            os.makedirs(extract_dir, exist_ok=True)
+            
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(extract_dir)
+            
+            extracted_contents = os.listdir(extract_dir)
+            if extracted_contents:
+                source_dir = os.path.join(extract_dir, extracted_contents[0])
             else:
-                # Starten als Python-Script
-                python_exe = sys.executable
-                cmd = f'"{python_exe}" "{windows_reminder_py}"'
+                BackupManager.log("Fehler: ZIP ist leer")
+                return False
+    
             
-            key = winreg.CreateKey(winreg.HKEY_CURRENT_USER, startup_key)
-            winreg.SetValueEx(key, "BackupManager", 0, winreg.REG_SZ, cmd)
-            winreg.CloseKey(key)
-            BackupManager.log("Autostart registriert")
+            for item in os.listdir(script_dir):
+                if item.startswith('.') or item in ['update.zip', 'update_temp']:
+                    continue
+                item_path = os.path.join(script_dir, item)
+            
+            for item in os.listdir(source_dir):
+                src = os.path.join(source_dir, item)
+                dst = os.path.join(script_dir, item)
+                if os.path.isdir(src):
+                    if os.path.exists(dst):
+                        shutil.rmtree(dst)
+                    shutil.copytree(src, dst)
+                else:
+                    shutil.copy2(src, dst)
+            
+            shutil.rmtree(extract_dir)
+            os.remove(zip_path)
+            
+            BackupManager.log(f"Update erfolgreich installiert")
             return True
         except Exception as e:
-            BackupManager.log(f"Autostart Fehler: {e}")
+            BackupManager.log(f"Update Installation Fehler: {e}")
             return False
 
 
@@ -198,7 +198,7 @@ class BackupManager:
 
         total_size = 0
 
-        with tqdm(total=len(file_list), desc=desc, unit=" files") as pbar:
+        with tqdm_.tqdm(total=len(file_list), desc=desc, unit=" files") as pbar:
 
             with ThreadPoolExecutor(max_workers=BackupManager.THREADS) as executor:
 
@@ -236,7 +236,7 @@ class BackupManager:
 
         total_size = 0
 
-        with tqdm(total=len(file_list), desc=desc, unit=" files") as pbar:
+        with tqdm_.tqdm(total=len(file_list), desc=desc, unit=" files") as pbar:
 
             with ThreadPoolExecutor(max_workers=BackupManager.THREADS) as executor:
 
@@ -342,7 +342,7 @@ R A S P B E R R Y   P I   N A S
             new_files = 0
             replace_files = 0
 
-            with tqdm(
+            with tqdm_.tqdm(
                 total=source_size,
                 unit="B",
                 unit_scale=True,
@@ -375,7 +375,7 @@ R A S P B E R R Y   P I   N A S
 
                 BackupManager.log("Kopieren startet")
 
-                with tqdm(
+                with tqdm_.tqdm(
                     total=copy_size,
                     unit="B",
                     unit_scale=True,
@@ -418,5 +418,30 @@ R A S P B E R R Y   P I   N A S
 
 # Script direkt startbar
 if __name__ == "__main__":
-    BackupManager.main()
-    input("Drücken Sie Enter, um das Programm zu beenden...")
+    # Prüfe ob Update-Modus (mit --update Flag)
+    is_update = "--update" in sys.argv
+    
+    if is_update:
+        # Update-Modus: Prüfe auf Updates und installiere sie
+        BackupManager.setup()
+        print("Prüfe auf Updates...")
+        release_info = BackupManager.check_for_update()
+        if release_info:
+            print(f"Update verfügbar: {release_info['version']}")
+            print(f"Installiere Update...")
+            if BackupManager.install_update(release_info):
+                print("Update erfolgreich installiert!")
+            else:
+                print("Update-Installation fehlgeschlagen!")
+        else:
+            print("Keine neuen Updates verfügbar.")
+    else:
+        # Normaler Modus: Führe Backup durch
+        release_info = BackupManager.check_for_update()
+        if release_info:
+            print(f"\nUpdate verfügbar: {release_info['version']}")
+            print(f"Um das Update zu installieren, führen Sie BackupManager.exe --update aus\n")
+        
+        BackupManager.main()
+        input("Drücken Sie Enter, um das Programm zu beenden...")
+        
