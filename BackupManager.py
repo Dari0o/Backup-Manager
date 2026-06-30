@@ -2,7 +2,7 @@ import os
 import shutil
 import sys
 from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, wait
 import tqdm as tqdm_
 from prompt_toolkit import prompt
 from prompt_toolkit.completion import PathCompleter
@@ -154,11 +154,13 @@ def copy_file(src, dst_base, src_base, progress):
     rel = os.path.relpath(src, src_base)
     dst = os.path.join(dst_base, rel)
 
-    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    try:
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copy2(src, dst)
+        progress.update(os.path.getsize(src))
 
-    shutil.copy2(src, dst)
-
-    progress.update(os.path.getsize(src))
+    except Exception as e:
+        log(f"Error copying {src} to {dst}: {e}")
 
 
 # ----------------------------
@@ -211,6 +213,7 @@ def collect_files_multithread(base_dir, desc, as_index=False):
     """
 
     file_list = []
+    scan_pbar = tqdm_.tqdm(desc=f"{desc} (scanning...)", unit=" dirs", position=0, leave=False)
 
     def scan_dir(path):
 
@@ -222,12 +225,27 @@ def collect_files_multithread(base_dir, desc, as_index=False):
                     file_list.append(entry.path)
 
                 elif entry.is_dir(follow_symlinks=False):
+                    scan_pbar.update(1)
                     scan_dir(entry.path)
 
         except (PermissionError, OSError):
             pass
 
-    scan_dir(base_dir)
+    # Parallelize directory scanning
+    dir_queue = [base_dir]
+    with ThreadPoolExecutor(max_workers=THREADS) as scan_executor:
+        while dir_queue:
+            try:
+                for entry in os.scandir(dir_queue.pop(0)):
+                    if entry.is_file(follow_symlinks=False):
+                        file_list.append(entry.path)
+                    elif entry.is_dir(follow_symlinks=False):
+                        scan_pbar.update(1)
+                        dir_queue.append(entry.path)
+            except (PermissionError, OSError):
+                pass
+
+    scan_pbar.close()
 
     results = {} if as_index else []
     total_size = 0
@@ -276,151 +294,154 @@ def load_target_index_multithread(target_dir, desc):
 # ----------------------------
 def main():
 
-    try:
+    print(r"""
+        .~~.   .~~.
+       '. \ ' ' / .'
+        .~ .~~~..~.
+       : .~.'~'.~. :
+      ~ (   ) (   ) ~
+     ( : '~'.~.'~' : )
+      ~ .~ (   ) ~. ~
+       (  : '~' :  )
+        '~ .~~~. ~'
+            '~'
 
-        print(r"""
-    .~~.   .~~.
-   '. \ ' ' / .'
-    .~ .~~~..~.
-   : .~.'~'.~. :
-  ~ (   ) (   ) ~
- ( : '~'.~.'~' : )
-  ~ .~ (   ) ~. ~
-   (  : '~' :  )
-    '~ .~~~. ~'
-        '~'
-
-
-R A S P B E R R Y   P I   N A S
-    B A C K U P
-
+B a c k u p  -  M a n a g e r 
+          v 1.0.2
     """)
 
+    while True:
         source_dir = prompt(
             "Please enter the source folder: ",
             completer=PathCompleter(expanduser=True, only_directories=True),
             complete_while_typing=True
         ).strip()
 
+        if not source_dir:
+            log("ERROR: Enter a directory path")
+            continue
+
         if not os.path.exists(source_dir):
 
-            log(
-                f"ERROR: Source folder does not exist: {source_dir}"
-            )
-
-            return
-
-        while True:
-
-            user_input = prompt(
-                "Please enter the target folder: ",
-                completer=PathCompleter(expanduser=True, only_directories=True),
-                complete_while_typing=True
-            ).strip()
-
-            target_dir = user_input
-
-            os.makedirs(target_dir, exist_ok=True)
-
+            log(f"ERROR: Source folder does not exist: {source_dir}")
+        else:
             break
 
-        log(f"Target folder set: {target_dir}")
-        log("=== Script started ===")
+        
+    while True:
+        target_dir = prompt(
+            "Please enter the target folder: ",
+        completer=PathCompleter(expanduser=True, only_directories=True),
+        complete_while_typing=True
+        ).strip()
 
-        source_files, source_size = scan_files_multithread(
-            source_dir, "Scanning Source"
-        )
+        if not target_dir:
+            log("ERROR: Enter a directory path")
+            continue
 
-        log(f"Files found in source: {len(source_files)}")
-        log("Please wait, scanning target directory...")
+        if source_dir == target_dir:
+            log("ERROR: Source and target folders cannot be the same")
+            return
 
-        target_index, target_size = load_target_index_multithread(
-            target_dir, "Scanning Target"
-        )
+        if not os.path.exists(target_dir):
+            log(f"ERROR: Target folder does not exist: {target_dir}")
+        else:
+            break
 
-        files_to_copy = []
+        
 
-        copy_size = 0
-        new_files = 0
-        replace_files = 0
+    os.makedirs(target_dir, exist_ok=True)
+
+
+    log(f"Target folder set: {target_dir}")
+    log("=== Script started ===")
+
+    source_files, source_size = scan_files_multithread(
+        source_dir, "Scanning Source"
+    )
+
+    log(f"Files found in source: {len(source_files)}")
+    log("Please wait, scanning target directory...")
+
+    target_index, target_size = load_target_index_multithread(
+        target_dir, "Scanning Target"
+    )
+
+    files_to_copy = []
+
+    copy_size = 0
+    new_files = 0
+    replace_files = 0
+
+    with tqdm_.tqdm(
+        total=source_size,
+        unit="B",
+        unit_scale=True,
+        desc="Comparing Files",
+    ) as pbar:
+
+        for src, size, mtime in source_files:
+
+            rel = os.path.relpath(src, source_dir)
+
+            target_info = target_index.get(rel)
+
+            if needs_update(size, mtime, target_info):
+
+                files_to_copy.append((src, size))
+
+                copy_size += size
+
+                if target_info is None:
+                    new_files += 1
+
+                else:
+                    replace_files += 1
+
+            pbar.update(size)
+
+    log(f"New files: {new_files}")
+    log(f"Replacing existing files: {replace_files}")
+
+    if len(files_to_copy) > 0:
+
+        log("Copy process started")
 
         with tqdm_.tqdm(
-            total=source_size,
+            total=copy_size,
             unit="B",
             unit_scale=True,
-            desc="Comparing Files",
+            desc="Copying",
         ) as pbar:
 
-            for src, size, mtime in source_files:
+            with ThreadPoolExecutor(
+                max_workers=THREADS
+            ) as executor:
 
-                rel = os.path.relpath(src, source_dir)
+                futures = []
 
-                target_info = target_index.get(rel)
+                for path, size in files_to_copy:
 
-                if needs_update(size, mtime, target_info):
-
-                    files_to_copy.append((src, size))
-
-                    copy_size += size
-
-                    if target_info is None:
-                        new_files += 1
-
-                    else:
-                        replace_files += 1
-
-                pbar.update(size)
-
-        log(f"New files: {new_files}")
-        log(f"Replacing existing files: {replace_files}")
-
-        if len(files_to_copy) > 0:
-
-            log("Copy process started")
-
-            with tqdm_.tqdm(
-                total=copy_size,
-                unit="B",
-                unit_scale=True,
-                desc="Copying",
-            ) as pbar:
-
-                with ThreadPoolExecutor(
-                    max_workers=THREADS
-                ) as executor:
-
-                    futures = []
-
-                    for path, size in files_to_copy:
-
-                        futures.append(
-                            executor.submit(
-                                copy_file,
-                                path,
-                                target_dir,
-                                source_dir,
-                                pbar,
-                            )
+                    futures.append(
+                        executor.submit(
+                            copy_file,
+                            path,
+                            target_dir,
+                            source_dir,
+                            pbar,
                         )
+                    )
 
-                    for f in as_completed(futures):
-                        f.result()
+                for f in as_completed(futures):
+                    f.result()
 
-            log("Copy process completed")
+        log("Copy process completed")
 
-        else:
+    else:
 
-            log("No files need to be copied")
+        log("No files need to be copied")
 
-        log("=== Script finished ===")
-
-    except KeyboardInterrupt:
-
-        log("Aborted by user")
-
-    except Exception as e:
-
-        log(f"ERROR: {e}")
+    log("=== Script finished ===")
 
 
 # Allow direct script execution
@@ -455,7 +476,7 @@ if __name__ == "__main__":
         # Normal mode: run backup
         current_version = get_current_version()
 
-        print(f"BackupManager v{current_version}")
+        #print(f"BackupManager v{current_version}")
 
         release_info = check_for_update()
 
@@ -469,7 +490,18 @@ if __name__ == "__main__":
                     "Run BackupManager.exe --update to install the update\n"
                 )
 
-        main()
+        try:
 
-        print("Program finished.")
+            main()
 
+        except KeyboardInterrupt:
+
+            log("Aborted by user")
+
+        except Exception as e:
+
+            log(f"Unexpected error: {e}")
+
+        
+        input("Press Enter to exit...")
+        sys.exit(0)
