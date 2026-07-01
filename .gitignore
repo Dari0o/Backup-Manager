@@ -4,6 +4,8 @@ __pycache__/
 *$py.class
 *.pyc
 
+.gitignore/
+
 # Unit test / coverage reports
 htmlcov/
 .tox/
