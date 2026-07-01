@@ -1,33 +1,35 @@
 # NAS Backup Manager
 
-Ein schnelles und multithreaded Backup-Tool 
-Das Programm vergleicht Dateien intelligent anhand von Größe und Änderungsdatum und kopiert nur neue oder geänderte Dateien.
+A fast and multithreaded backup tool.
+
+The program intelligently compares files based on size and modification date, and copies only new or changed files.
 
 ---
 
 ## Features
 
-* Multithreaded Datei-Scanning
-* Schnelles paralleles Kopieren
-* Fortschrittsanzeigen mit `tqdm`
-* Automatische Ordnerstruktur-Erstellung
-* GitHub Update-System
-* Unterstützt große Verzeichnisse
-* Symlink-sicher (`follow_symlinks=False`)
-* Optimiert für NAS / SMB Shares
-* Einfache CLI-Bedienung
+* Multithreaded file scanning
+* Fast parallel copying
+* Intelligent file comparison (size + modification time)
+* Optional Mirror Mode
+* GitHub update system
+* Supports large directories
+* Symlink-safe (`follow_symlinks=False`)
+* Progress bars with `tqdm` _(nice)_
+* Optimized for NAS / SMB shares
+* Easy CLI usage
 
 ---
 
 ## Installation
 
-### Voraussetzungen
+### Requirements
 
 * Python 3.10+
-* Windows oder Linux
-* Netzwerkfreigabe / NAS optional
+* Windows or Linux
+* Network share / NAS (optional)
 
-### Benötigte Pakete
+### Required Packages
 
 ```bash
 pip install tqdm prompt_toolkit requests
@@ -35,86 +37,109 @@ pip install tqdm prompt_toolkit requests
 
 ---
 
-## Verwendung
+## Usage
 
-Programm starten:
+Start the program:
 
 ```bash
 python backup_manager.py
 ```
 
-Danach:
+Then:
 
-1. Source-Ordner auswählen
-2. Ziel-Ordner auswählen
-3. Backup startet automatisch
+1. Select the source folder
+2. Select the destination folder
+3. The backup starts automatically
 
 ---
 
-## Update-System
+## Update System
 
-Auf neue Version prüfen:
+Check for a new version:
 
 ```bash
 python backup_manager.py --update
 ```
 
-Das Tool lädt automatisch den neuesten GitHub Release herunter und installiert ihn.
+The tool automatically downloads and installs the latest GitHub release.
 
 ---
 
-## Wie funktioniert das Backup?
+## Mirror-Mode
 
-Das Programm scannt:
+Mirror Mode keeps the destination folder an exact copy of the source folder.
 
-* Quelldateien
-* Zieldateien
+In addition to copying new and updated files, it also removes files and directories from the destination that no longer exist in the source.
 
-und vergleicht anschließend:
+This is useful for maintaining a synchronized backup without obsolete files.
 
-* Dateigröße
-* Änderungszeit (`mtime`)
-
-Nur geänderte Dateien werden kopiert.
-
-Das macht das Backup sehr schnell, besonders bei großen Ordnern.
-
----
-
-## Performance
-
-Das Tool verwendet automatisch:
-
-```python
-min(8, max(1, os.cpu_count() // 2))
+```bash
+python backup_manager.py --mirror
 ```
 
-Threads.
+**Example**
 
-Dadurch wird:
+Source:
 
-* die CPU nicht vollständig ausgelastet
-* NAS-Systeme nicht überlastet
-* HDD-Seeking reduziert
+```text
+Documents/
+├── Report.pdf
+└── Photo.jpg
+```
+
+Target before backup:
+
+```text
+Documents/
+├── Report.pdf
+├── Photo.jpg
+└── OldFile.txt
+```
+
+Target after Mirror Mode:
+
+```text
+Documents/
+├── Report.pdf
+└── Photo.jpg
+```
+
+`OldFile.txt` is automatically deleted because it no longer exists in the source directory.
+
+> **Warning**
+> Mirror Mode permanently deletes files from the destination that are not present in the source. Use this mode with caution.
 
 ---
 
-## Geplante Features
+## How does the backup work?
 
-* GUI-Version
-* Ausschlussfilter (`.git`, `node_modules`, etc.)
-* Kompression
-* Verschlüsselung
-* Backup-Profile
+The program scans:
+
+* Source files
+* Destination files
+
+It then compares:
+
+* File size
+* Modification time (`mtime`)
+
+Only changed files are copied.
+
+This makes the backup very fast, especially for large folders.
 
 ---
 
-## Lizenz
+
+## Planned Features
+
+* GUI version
+*  ~~Exclusion filters (`.git`, `node_modules`, etc.)~~ (v1.1.0)
+* Optional compression
+* Optional encryption
+* Backup profiles
+
+---
+
+## License
 
 MIT License
-
----
-
-## Autor
-
-Entwickelt von Dario.
