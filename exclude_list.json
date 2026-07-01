@@ -1,0 +1,20 @@
+{
+    "ignored_folder_names": [
+        ".git",
+        "__pycache__",
+        "node_modules",
+        "temp",
+        "tmp"
+    ],
+    "ignored_file_names": [
+        "Thumbs.db",
+        ".DS_Store",
+        "desktop.ini"
+    ],
+    "ignored_extensions": [
+        ".tmp",
+        ".log",
+        ".bak",
+        ".swp"
+    ]
+}
