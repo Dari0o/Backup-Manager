@@ -1,6 +1,6 @@
 # NAS Backup Manager
 
-Ein schnelles und multithreaded Backup-Tool für Windows und Raspberry Pi NAS-Systeme.
+Ein schnelles und multithreaded Backup-Tool 
 Das Programm vergleicht Dateien intelligent anhand von Größe und Änderungsdatum und kopiert nur neue oder geänderte Dateien.
 
 ---
