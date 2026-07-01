@@ -6,20 +6,27 @@ from concurrent.futures import ThreadPoolExecutor, as_completed, wait
 import tqdm as tqdm_
 from prompt_toolkit import prompt
 from prompt_toolkit.completion import PathCompleter
+from typing import List, Dict, Tuple, Optional, Union, Any
+
+try:
+    from exclude_list import should_ignore_path
+except ImportError:
+    def should_ignore_path(entry) -> bool:
+        return False
 
 # ----------------------------
 # Global Variables
 # ----------------------------
 log_dir = r"\\pi4\Share\Backup"
 log_file = os.path.join(log_dir, "backup.log")
-THREADS = min(8, max(1, os.cpu_count() // 2))
-VERSION = "1.0.2"  # Current version
+THREADS = 32  # min(8, max(1, os.cpu_count() // 1.5))
+VERSION = "1.1.0"  # Current version
 
 
 # ----------------------------
 # Logging
 # ----------------------------
-def log(message):
+def log(message: str) -> None:
     time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     entry = f"[{time}] {message}"
     print(entry)
@@ -33,12 +40,12 @@ def log(message):
 # ----------------------------
 # Update Management
 # ----------------------------
-def get_current_version():
+def get_current_version() -> str:
     """Returns the current version"""
     return VERSION
 
 
-def compare_versions(current, available):
+def compare_versions(current: str, available: str) -> bool:
     """
     Compares two version numbers (e.g. '1.0.0' and '1.0.1')
     Returns True if a newer version is available
@@ -58,7 +65,7 @@ def compare_versions(current, available):
         return False
 
 
-def check_for_update():
+def check_for_update() -> Optional[Dict[str, Any]]:
     """Checks GitHub for a new version"""
     try:
         import requests
@@ -87,7 +94,7 @@ def check_for_update():
         return None
 
 
-def install_update(release_info):
+def install_update(release_info: Dict[str, Any]) -> bool:
     """Installs a new release"""
     try:
         import requests
@@ -149,7 +156,7 @@ def install_update(release_info):
         return False
 
 
-def copy_file(src, dst_base, src_base, progress):
+def copy_file(src: str, dst_base: str, src_base: str, progress: Any) -> None:
 
     rel = os.path.relpath(src, src_base)
     dst = os.path.join(dst_base, rel)
@@ -166,7 +173,7 @@ def copy_file(src, dst_base, src_base, progress):
 # ----------------------------
 # Check if file needs replacement
 # ----------------------------
-def needs_update(src_size, src_mtime, target_info):
+def needs_update(src_size: int, src_mtime: float, target_info: Optional[Tuple[int, float]]) -> bool:
 
     if target_info is None:
         return True
@@ -185,20 +192,21 @@ def needs_update(src_size, src_mtime, target_info):
 # ----------------------------
 # File stat for multithreading
 # ----------------------------
-def stat_file(path):
+def stat_file(path: str) -> Optional[Tuple[str, int, float]]:
 
     try:
         stat = os.stat(path)
         return (path, stat.st_size, stat.st_mtime)
 
     except Exception:
+        log(f"Error accessing file: {path}")
         return None
 
 
 # ----------------------------
 # Scan source directory (generic)
 # ----------------------------
-def collect_files_multithread(base_dir, desc, as_index=False):
+def collect_files_multithread(base_dir: str, desc: str, as_index: bool = False) -> Tuple[Union[List[Tuple[str, int, float]], Dict[str, Tuple[int, float]]], int]:
     """
     Collects file information from a directory using multithreading
 
@@ -213,13 +221,17 @@ def collect_files_multithread(base_dir, desc, as_index=False):
     """
 
     file_list = []
-    scan_pbar = tqdm_.tqdm(desc=f"{desc} (scanning...)", unit=" dirs", position=0, leave=False)
+    scan_pbar = tqdm_.tqdm(
+        desc=f"{desc} (scanning...)", unit=" dirs", position=0, leave=False)
 
     def scan_dir(path):
 
         try:
 
             for entry in os.scandir(path):
+
+                if should_ignore_path(entry):
+                    continue
 
                 if entry.is_file(follow_symlinks=False):
                     file_list.append(entry.path)
@@ -237,6 +249,9 @@ def collect_files_multithread(base_dir, desc, as_index=False):
         while dir_queue:
             try:
                 for entry in os.scandir(dir_queue.pop(0)):
+                    if should_ignore_path(entry):
+                        continue
+
                     if entry.is_file(follow_symlinks=False):
                         file_list.append(entry.path)
                     elif entry.is_dir(follow_symlinks=False):
@@ -279,12 +294,12 @@ def collect_files_multithread(base_dir, desc, as_index=False):
     return results, total_size
 
 
-def scan_files_multithread(base, desc):
+def scan_files_multithread(base: str, desc: str) -> Tuple[List[Tuple[str, int, float]], int]:
     """Scans files and returns a list with absolute paths"""
     return collect_files_multithread(base, desc, as_index=False)
 
 
-def load_target_index_multithread(target_dir, desc):
+def load_target_index_multithread(target_dir: str, desc: str) -> Tuple[Dict[str, Tuple[int, float]], int]:
     """Scans files and returns a dictionary with relative paths as keys"""
     return collect_files_multithread(target_dir, desc, as_index=True)
 
@@ -292,7 +307,7 @@ def load_target_index_multithread(target_dir, desc):
 # ----------------------------
 # MAIN
 # ----------------------------
-def main():
+def main() -> None:
 
     print(r"""
         .~~.   .~~.
@@ -311,47 +326,47 @@ B a c k u p  -  M a n a g e r
     """)
 
     while True:
-        source_dir = prompt(
-            "Please enter the source folder: ",
-            completer=PathCompleter(expanduser=True, only_directories=True),
-            complete_while_typing=True
-        ).strip()
+        while True:
+            source_dir = prompt(
+                "Please enter the source folder: ",
+                completer=PathCompleter(
+                    expanduser=True, only_directories=True),
+                complete_while_typing=True
+            ).strip()
 
-        if not source_dir:
-            log("ERROR: Enter a directory path")
-            continue
+            if not source_dir:
+                log("ERROR: Enter a directory path")
+                continue
 
-        if not os.path.exists(source_dir):
+            if not os.path.exists(source_dir):
 
-            log(f"ERROR: Source folder does not exist: {source_dir}")
-        else:
-            break
+                log(f"ERROR: Source folder does not exist: {source_dir}")
+            else:
+                break
 
-        
-    while True:
-        target_dir = prompt(
-            "Please enter the target folder: ",
-        completer=PathCompleter(expanduser=True, only_directories=True),
-        complete_while_typing=True
-        ).strip()
+        while True:
+            target_dir = prompt(
+                "Please enter the target folder: ",
+                completer=PathCompleter(
+                    expanduser=True, only_directories=True),
+                complete_while_typing=True
+            ).strip()
 
-        if not target_dir:
-            log("ERROR: Enter a directory path")
-            continue
+            if not target_dir:
+                log("ERROR: Enter a directory path")
+                continue
+
+            if not os.path.exists(target_dir):
+                log(f"ERROR: Target folder does not exist: {target_dir}")
+            else:
+                break
 
         if source_dir == target_dir:
             log("ERROR: Source and target folders cannot be the same")
-            return
-
-        if not os.path.exists(target_dir):
-            log(f"ERROR: Target folder does not exist: {target_dir}")
         else:
             break
 
-        
-
     os.makedirs(target_dir, exist_ok=True)
-
 
     log(f"Target folder set: {target_dir}")
     log("=== Script started ===")
@@ -366,6 +381,59 @@ B a c k u p  -  M a n a g e r
     target_index, target_size = load_target_index_multithread(
         target_dir, "Scanning Target"
     )
+
+    # If mirror mode: delete files in target that are not present in source
+    if globals().get('MIRROR_MODE'):
+
+        # Build set of relative paths present in source
+        source_rels = set()
+        for src, _, _ in source_files:
+            source_rels.add(os.path.relpath(src, source_dir))
+
+        to_delete = [rel for rel in target_index.keys()
+                     if rel not in source_rels]
+
+        if to_delete:
+            # Ask for confirmation before destructive action
+            try:
+                answer = input(
+                    f"Mirror mode: delete {len(to_delete)} items from target? (y/N): ").strip().lower()
+            except KeyboardInterrupt:
+                log("Mirror mode: deletion aborted by user")
+                answer = "n"
+
+            if answer not in ("y", "yes"):
+                log("Mirror mode: deletion aborted by user")
+            else:
+                log(f"Mirror mode: deleting {len(to_delete)} items from target")
+
+                deleted = 0
+                with tqdm_.tqdm(total=len(to_delete), desc="Deleting", unit="items") as del_pbar:
+                    for rel in to_delete:
+                        target_path = os.path.join(target_dir, rel)
+                        try:
+                            if os.path.isfile(target_path) or os.path.islink(target_path):
+                                os.remove(target_path)
+                                deleted += 1
+                                log(f"Deleted: {target_path}")
+                            elif os.path.isdir(target_path):
+                                shutil.rmtree(target_path)
+                                deleted += 1
+                                log(f"Deleted dir: {target_path}")
+                        except Exception as e:
+                            log(f"Error deleting {target_path}: {e}")
+                        finally:
+                            del_pbar.update(1)
+
+                # Remove any now-empty directories under target
+                for root, dirs, files in os.walk(target_dir, topdown=False):
+                    try:
+                        if not os.listdir(root):
+                            os.rmdir(root)
+                    except Exception:
+                        pass
+
+                log(f"Mirror mode: deleted {deleted} items")
 
     files_to_copy = []
 
@@ -449,6 +517,8 @@ if __name__ == "__main__":
 
     # Check if update mode is enabled (--update flag)
     is_update = "--update" in sys.argv
+    # Mirror/Delete-Sync mode (--mirror)
+    MIRROR_MODE = "--mirror" in sys.argv
 
     if is_update:
 
@@ -476,7 +546,7 @@ if __name__ == "__main__":
         # Normal mode: run backup
         current_version = get_current_version()
 
-        #print(f"BackupManager v{current_version}")
+        # print(f"BackupManager v{current_version}")
 
         release_info = check_for_update()
 
@@ -487,7 +557,7 @@ if __name__ == "__main__":
 
                 print(f"\n✓ Update available: v{release_info['version']}")
                 print(
-                    "Run BackupManager.exe --update to install the update\n"
+                    "Run BackupManager.exe --update or BackupManager.py --update to install the update\n"
                 )
 
         try:
@@ -502,6 +572,5 @@ if __name__ == "__main__":
 
             log(f"Unexpected error: {e}")
 
-        
         input("Press Enter to exit...")
         sys.exit(0)
