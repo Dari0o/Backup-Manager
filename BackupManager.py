@@ -15,6 +15,11 @@ except ImportError:
     def should_ignore_path(entry) -> bool:
         return False
 
+try:
+    from compression import compress_to_zip
+except ImportError:
+    compress_to_zip = None
+
 
 def should_ignore(entry) -> bool:
     if IGNORE_EXCLUDE_LIST:
@@ -554,6 +559,8 @@ Examples:
   python BackupManager.py
   python BackupManager.py --source D:\\Data --target \\\\nas\\backup
   python BackupManager.py --source D:\\Data --target \\\\nas\\backup --mirror
+  python BackupManager.py --source D:\\Data --target \\\\nas\\backup -c 6
+  python BackupManager.py -c 6
   python BackupManager.py --update
         """
     )
@@ -571,12 +578,18 @@ Examples:
         default=None
     )
     parser.add_argument(
+        '-c', '--compression',
+        type=int,
+        help='Enable compression and set compression level (0-9). 0=no compression (fastest), 9=maximum compression (slowest)',
+        default=None
+    )
+    parser.add_argument(
         '--mirror',
         action='store_true',
         help='Enable mirror mode (delete files in target that are not in source)'
     )
     parser.add_argument(
-        '--i',
+        '-i',
         action='store_true',
         dest='ignore_excludes',
         help='Ignore exclude list and copy all files'
@@ -591,6 +604,98 @@ Examples:
     
     # Set ignore-exclude-list flag before any scanning begins
     IGNORE_EXCLUDE_LIST = args.ignore_excludes
+
+    # Check if compression mode is enabled
+    compression_level = args.compression
+    if compression_level is not None:
+        if not (0 <= compression_level <= 9):
+            print(f"ERROR: Compression level must be between 0 and 9, got: {compression_level}")
+            sys.exit(0)
+        
+        if not compress_to_zip:
+            print("ERROR: compression.py could not be imported")
+            sys.exit(0)
+        
+
+
+        # Compression mode
+        if args.source is None:
+            # Interactive input for compression mode
+            print(r"""
+        .~~.   .~~.
+       '. \ ' ' / .'
+        .~ .~~~..~.
+       : .~.'~'.~. :
+      ~ (   ) (   ) ~
+     ( : '~'.~.'~' : )
+      ~ .~ (   ) ~. ~
+       (  : '~' :  )
+        '~ .~~~. ~'
+            '~'
+
+B a c k u p  -  M a n a g e r 
+          v 1.1.1
+            """)
+            
+            while True:
+                source_dir = prompt(
+                    "Please enter the source directory: ",
+                    completer=PathCompleter(
+                        expanduser=True, only_directories=True),
+                    complete_while_typing=True
+                ).strip()
+                
+                if not source_dir:
+                    print("ERROR: Please enter a path")
+                    continue
+                
+                if not os.path.exists(source_dir):
+                    print(f"ERROR: Source directory does not exist: {source_dir}")
+                    continue
+                
+                break
+            
+            # Output filename
+            timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+            output_zip = os.path.join(os.path.expanduser("~"), f"backup_{timestamp}.zip")
+            user_output = prompt(
+                f"Output ZIP file [{output_zip}]: ",
+                complete_while_typing=False
+            ).strip()
+            
+            if user_output:
+                output_zip = user_output
+        else:
+            # Source provided
+            source_dir = args.source
+            
+            if not os.path.exists(source_dir):
+                print(f"ERROR: Source directory does not exist: {source_dir}")
+                sys.exit(1)
+            
+            # Determine output filename
+            if args.target:
+                output_zip = args.target
+            else:
+                timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+                output_zip = os.path.join(os.path.expanduser("~"), f"backup_{timestamp}.zip")
+        
+        # Start compression
+        try:
+            compress_to_zip(source_dir, output_zip, compression_level, log_func=log, should_ignore_func=should_ignore, num_threads=THREADS)
+        except KeyboardInterrupt:
+            log("Compression aborted by user")
+            if os.path.exists(output_zip):
+                try:
+                    os.remove(output_zip)
+                    log(f"Incomplete ZIP file deleted: {output_zip}")
+                except:
+                    pass
+        except Exception as e:
+            log(f"Compression error: {e}")
+            sys.exit(1)
+        
+        sys.exit(0)
 
     # Check if update mode is enabled
     is_update = args.update
@@ -634,7 +739,7 @@ Examples:
 
                 print(f"\n✓ Update available: v{release_info['version']}")
                 print(
-                    "Run BackupManager.exe --update or BackupManager.py --update to install the update\n"
+                    "Run BackupManager.py --update to install the update\n"
                 )
 
         try:

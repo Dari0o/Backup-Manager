@@ -12,7 +12,8 @@ The program intelligently compares files based on size and modification date, an
 * Fast parallel copying
 * Intelligent file comparison (size + modification time)
 * Easy CLI usage for automation
-* Optional Mirror Mode
+* Optional Mirror Mode (synchronization)
+* ZIP Compression with adjustable compression level (0-9)
 * GitHub update system
 * Supports large directories
 * Symlink-safe (`follow_symlinks=False`)
@@ -56,6 +57,8 @@ python BackupManager.py
 python BackupManager.py --source D:\Data --target \\nas\backup
 python BackupManager.py --source D:\Data --target \\nas\backup --mirror
 python BackupManager.py --source D:\Data --target \\nas\backup --i
+python BackupManager.py --source D:\Data -c 6
+python BackupManager.py -c 6
 python BackupManager.py --update
 ```
 
@@ -63,6 +66,7 @@ python BackupManager.py --update
 
 * `--source` → Source directory
 * `--target` → Target directory
+* `-c, --compression` → Enable ZIP compression (0-9). 0=no compression (fastest), 9=maximum compression (slowest)
 * `--mirror` → Enables mirror mode (deletes files in target that do not exist in source)
 * `--i` → Ignore exclude list and copy all files
 * `--update` → Checks and installs latest GitHub release
@@ -78,6 +82,36 @@ python backup_manager.py --update
 ```
 
 The tool automatically downloads and installs the latest GitHub release.
+
+---
+
+## Compression
+
+Create compressed ZIP backups with adjustable compression levels.
+
+**Compression Levels:**
+
+* `0` → No compression (fastest)
+* `6` → Standard (balanced speed & compression)
+* `9` → Maximum compression (slowest)
+
+**Interactive mode (prompts for source):**
+
+```bash
+python BackupManager.py -c 6
+```
+
+**With explicit paths:**
+
+```bash
+python BackupManager.py --source D:\Data --target D:\backup.zip -c 6
+```
+
+The compression process shows:
+* File count
+* Total size before and after compression
+* Compression ratio (in percentage)
+* Real-time progress bar
 
 ---
 
