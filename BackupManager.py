@@ -28,7 +28,7 @@ def should_ignore(entry) -> bool:
 log_dir = r"\\pi4\Share\Backup"
 log_file = os.path.join(log_dir, "backup.log")
 THREADS = 32  # min(8, max(1, os.cpu_count() // 1.5))
-VERSION = "1.1.0"  # Current version
+VERSION = "1.1.1"  # Current version
 IGNORE_EXCLUDE_LIST = False
 
 
@@ -377,7 +377,7 @@ def main(source_dir: Optional[str] = None, target_dir: Optional[str] = None) -> 
             '~'
 
 B a c k u p  -  M a n a g e r 
-          v 1.1.0
+          v 1.1.1
     """)
 
     # If directories not provided as arguments, prompt interactively

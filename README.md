@@ -16,7 +16,7 @@ The program intelligently compares files based on size and modification date, an
 * GitHub update system
 * Supports large directories
 * Symlink-safe (`follow_symlinks=False`)
-* Progress bars with `tqdm` _(nice)_
+* Progress bars with `tqdm`
 * Optimized for NAS / SMB shares
 
 ---
