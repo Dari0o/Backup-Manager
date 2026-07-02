@@ -158,4 +158,3 @@ This makes the backup very fast, especially for large folders.
 ## License
 
 MIT License
-```
