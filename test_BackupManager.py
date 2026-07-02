@@ -72,7 +72,7 @@ def test_log_function(mock_mkdir, mock_open):
 
 
 # ----------------------------
-# stat_file (IMPORTANT FIX)
+# stat_file
 # ----------------------------
 
 @patch("BackupManager.log", new_callable=MagicMock)
