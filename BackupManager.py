@@ -15,6 +15,13 @@ except ImportError:
     def should_ignore_path(entry) -> bool:
         return False
 
+
+def should_ignore(entry) -> bool:
+    if IGNORE_EXCLUDE_LIST:
+        return False
+    return should_ignore_path(entry)
+
+
 # ----------------------------
 # Global Variables
 # ----------------------------
@@ -22,6 +29,7 @@ log_dir = r"\\pi4\Share\Backup"
 log_file = os.path.join(log_dir, "backup.log")
 THREADS = 32  # min(8, max(1, os.cpu_count() // 1.5))
 VERSION = "1.1.0"  # Current version
+IGNORE_EXCLUDE_LIST = False
 
 
 # ----------------------------
@@ -231,7 +239,7 @@ def collect_files_multithread(base_dir: str, desc: str, as_index: bool = False) 
 
             for entry in os.scandir(path):
 
-                if should_ignore_path(entry):
+                if should_ignore(entry):
                     continue
 
                 if entry.is_file(follow_symlinks=False):
@@ -250,7 +258,7 @@ def collect_files_multithread(base_dir: str, desc: str, as_index: bool = False) 
         while dir_queue:
             try:
                 for entry in os.scandir(dir_queue.pop(0)):
-                    if should_ignore_path(entry):
+                    if should_ignore(entry):
                         continue
 
                     if entry.is_file(follow_symlinks=False):
@@ -369,7 +377,7 @@ def main(source_dir: Optional[str] = None, target_dir: Optional[str] = None) -> 
             '~'
 
 B a c k u p  -  M a n a g e r 
-          v 1.0.2
+          v 1.1.0
     """)
 
     # If directories not provided as arguments, prompt interactively
@@ -535,7 +543,6 @@ B a c k u p  -  M a n a g e r
     log("=== Script finished ===")
 
 
-# Allow direct script execution
 if __name__ == "__main__":
 
     # Create argument parser
@@ -569,6 +576,12 @@ Examples:
         help='Enable mirror mode (delete files in target that are not in source)'
     )
     parser.add_argument(
+        '--i',
+        action='store_true',
+        dest='ignore_excludes',
+        help='Ignore exclude list and copy all files'
+    )
+    parser.add_argument(
         '--update',
         action='store_true',
         help='Check for and install updates'
@@ -576,6 +589,9 @@ Examples:
     
     args = parser.parse_args()
     
+    # Set ignore-exclude-list flag before any scanning begins
+    IGNORE_EXCLUDE_LIST = args.ignore_excludes
+
     # Check if update mode is enabled
     is_update = args.update
     # Mirror/Delete-Sync mode

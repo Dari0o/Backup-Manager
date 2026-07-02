@@ -55,6 +55,7 @@ You can also run the tool with arguments:
 python BackupManager.py
 python BackupManager.py --source D:\Data --target \\nas\backup
 python BackupManager.py --source D:\Data --target \\nas\backup --mirror
+python BackupManager.py --source D:\Data --target \\nas\backup --i
 python BackupManager.py --update
 ```
 
@@ -63,6 +64,7 @@ python BackupManager.py --update
 * `--source` → Source directory
 * `--target` → Target directory
 * `--mirror` → Enables mirror mode (deletes files in target that do not exist in source)
+* `--i` → Ignore exclude list and copy all files
 * `--update` → Checks and installs latest GitHub release
 
 ---
