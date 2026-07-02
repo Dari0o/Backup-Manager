@@ -52,38 +52,23 @@ def compress_to_zip(source_path: str, output_zip: str, compression_level: int = 
             files_to_zip.append(source_path)
             total_size = os.path.getsize(source_path)
         else:
+            total_size_list = [0]
+
             def scan_dir(path):
                 try:
                     for entry in os.scandir(path):
                         if should_ignore_func(entry):
                             continue
-                        
-                        if entry.is_file(follow_symlinks=False):
-                            files_to_zip.append(entry.path)
-                            total_size += entry.stat(follow_symlinks=False).st_size
-                        elif entry.is_dir(follow_symlinks=False):
-                            scan_dir(entry.path)
-                except (PermissionError, OSError):
-                    pass
-            
-            # Non-local to update total_size
-            total_size_list = [0]
-            
-            def scan_dir_with_size(path):
-                try:
-                    for entry in os.scandir(path):
-                        if should_ignore_func(entry):
-                            continue
-                        
+
                         if entry.is_file(follow_symlinks=False):
                             files_to_zip.append(entry.path)
                             total_size_list[0] += entry.stat(follow_symlinks=False).st_size
                         elif entry.is_dir(follow_symlinks=False):
-                            scan_dir_with_size(entry.path)
+                            scan_dir(entry.path)
                 except (PermissionError, OSError):
                     pass
-            
-            scan_dir_with_size(source_path)
+
+            scan_dir(source_path)
             total_size = total_size_list[0]
         
         if not files_to_zip:
