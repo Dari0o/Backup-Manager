@@ -660,7 +660,11 @@ B a c k u p  -  M a n a g e r
             output_zip = os.path.join(os.path.expanduser("~"), f"backup_{timestamp}.zip")
             user_output = prompt(
                 f"Output ZIP file [{output_zip}]: ",
-                complete_while_typing=False
+                completer=PathCompleter(
+                    expanduser=True,
+                    only_directories=False
+                ),
+                complete_while_typing=True
             ).strip()
             
             if user_output:
