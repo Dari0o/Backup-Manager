@@ -4,23 +4,6 @@ __pycache__/
 *$py.class
 *.pyc
 
-.gitignore/
-
-# Unit test / coverage reports
-htmlcov/
-.tox/
-.nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.py.cover
-.hypothesis/
-.pytest_cache/
-cover/
-
 # Environments
 .env
 .envrc
@@ -33,5 +16,3 @@ venv.bak/
 
 # Visual Studio Code
 .vscode/
-# Temporary file for partial code execution
-tempCodeRunnerFile.py
