@@ -1,4 +1,4 @@
-[![Python application](https://github.com/Dari0o/Backup-Manager/actions/workflows/python-app.yml/badge.svg)](https://github.com/Dari0o/Backup-Manager/actions/workflows/python-app.yml)
+[![Python application](https://github.com/Dari0o/Backup-Manager/actions/workflows/python-app.yml/badge.svg)](https://github.com/Dari0o/Backup-Manager/actions/workflows/python-app.yml) [![MIT license](https://img.shields.io/badge/License-MIT-blue.svg)](https://lbesson.mit-license.org/)
 # NAS Backup Manager
 
 A fast and multithreaded backup tool.
@@ -14,7 +14,7 @@ The program intelligently compares files based on size and modification date, an
 * Intelligent file comparison (size + modification time)
 * Easy CLI usage for automation
 * Optional Mirror Mode (synchronization)
-* ZIP Compression with adjustable compression level (0-9)
+* Fast ZIP Compression with adjustable compression level using 7zip
 * GitHub update system
 * Supports large directories
 * Symlink-safe (`follow_symlinks=False`)
