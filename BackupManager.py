@@ -10,6 +10,7 @@ import tqdm as tqdm_
 from prompt_toolkit import prompt
 from prompt_toolkit.completion import PathCompleter
 from typing import List, Dict, Tuple, Optional, Union, Any
+from crypto_utils import toggle_directory_cipher
 
 try:
     from exclude_list import should_ignore_path
@@ -730,6 +731,16 @@ Examples:
         help='Enable mirror mode (delete files in target that are not in source)'
     )
     parser.add_argument(
+        '-e', '--encrypt',
+        action='store_true',
+        help='Encrypt the backup directories/files'
+    )
+    parser.add_argument(
+        '-d', '--decrypt',
+        action='store_true',
+        help='Decrypt the backup directories/files'
+    )
+    parser.add_argument(
         '-i',
         action='store_true',
         dest='ignore_excludes',
@@ -757,7 +768,17 @@ Examples:
             print("ERROR: compression.py could not be imported")
             sys.exit(0)
         
+# Run encryption transformation if flag is provided
+    if args.encrypt:
+        print("🔐 Initializing symmetric file encryption sequence...")
+        toggle_directory_cipher(args.target if args.target else args.source_dir)
+        print("✓ Encryption processing complete.")
 
+    # Run decryption transformation if flag is provided
+    if args.decrypt:
+        print("🔓 Initializing symmetric file decryption sequence...")
+        toggle_directory_cipher(args.target if args.target else args.source_dir)
+        print("✓ Decryption processing complete.")
 
         # Compression mode
         if args.source is None:
