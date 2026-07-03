@@ -16,5 +16,20 @@
         ".log",
         ".bak",
         ".swp"
+    ],
+    "store_without_compression_extensions": [
+        ".wav",
+        ".mp3",
+        ".mp4",
+        ".mkv",
+        ".avi",
+        ".jpg",
+        ".png",
+        ".zip",
+        ".rar",
+        ".gz",
+        ".7z",
+        ".flp",
+        ".flac"
     ]
 }

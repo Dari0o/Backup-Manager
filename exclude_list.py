@@ -25,6 +25,19 @@ DEFAULT_CONFIG: Dict[str, List[str]] = {
         ".bak",
         ".swp",
     ],
+    "store_without_compression_extensions": [
+        ".wav",
+        ".mp3",
+        ".mp4",
+        ".mkv",
+        ".avi",
+        ".jpg",
+        ".png",
+        ".zip",
+        ".rar",
+        ".gz",
+        ".7z"
+    ],
 }
 
 
@@ -73,6 +86,7 @@ def load_exclude_config() -> Dict[str, List[str]]:
             "ignored_folder_names": _normalize_names(config.get("ignored_folder_names", DEFAULT_CONFIG["ignored_folder_names"])),
             "ignored_file_names": _normalize_names(config.get("ignored_file_names", DEFAULT_CONFIG["ignored_file_names"])),
             "ignored_extensions": _normalize_extensions(config.get("ignored_extensions", DEFAULT_CONFIG["ignored_extensions"])),
+            "store_without_compression_extensions": _normalize_extensions(config.get("store_without_compression_extensions", DEFAULT_CONFIG["store_without_compression_extensions"])),
         }
 
     except (json.JSONDecodeError, OSError):
