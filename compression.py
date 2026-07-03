@@ -70,7 +70,7 @@ def compress_to_zip(source_path: str, output_zip: str, compression_level: int = 
         compression_level: Compression strength (0-9)
         log_func: Optional logging function
         should_ignore_func: Optional function to determine if a path should be ignored
-        num_threads: Kept for compatibility with existing callers; ignored by 7-Zip
+        num_threads: Number of CPU threads 7-Zip may use for compression (7-Zip -mmt)
 
     Returns:
         True if successful, False on error
@@ -126,6 +126,7 @@ def compress_to_zip(source_path: str, output_zip: str, compression_level: int = 
                     "a",
                     "-tzip",
                     f"-mx={compression_level_value}",
+                    f"-mmt={num_threads}",
                     output_zip,
                     "@" + list_path,
                 ]

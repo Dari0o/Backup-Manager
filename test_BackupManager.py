@@ -152,6 +152,7 @@ def test_compress_to_zip_uses_7z(tmp_path):
     assert command[1] == "a"
     assert command[2] == "-tzip"
     assert command[3] == "-mx=1"
+    assert command[4] == "-mmt=1"
 
 
 def test_compress_to_zip_stores_wav_without_compression(tmp_path):
