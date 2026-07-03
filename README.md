@@ -111,8 +111,7 @@ python BackupManager.py --source D:\Data --target D:\backup.zip -c 6
 The compression process shows:
 * File count
 * Total size before and after compression
-* Compression ratio (in percentage)
-* Real-time progress bar
+
 
 ---
 
