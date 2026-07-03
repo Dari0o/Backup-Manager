@@ -4,6 +4,9 @@ __pycache__/
 *$py.class
 *.pyc
 
+#pytest-cache/
+.pytest_cache/
+
 # Environments
 .env
 .envrc
