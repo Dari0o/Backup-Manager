@@ -770,15 +770,15 @@ Examples:
         
 # Run encryption transformation if flag is provided
     if args.encrypt:
-        print("🔐 Initializing symmetric file encryption sequence...")
+        print("Initializing symmetric file encryption sequence...")
         toggle_directory_cipher(args.target if args.target else args.source_dir)
-        print("✓ Encryption processing complete.")
+        print("Encryption processing complete.")
 
     # Run decryption transformation if flag is provided
     if args.decrypt:
-        print("🔓 Initializing symmetric file decryption sequence...")
+        print("Initializing symmetric file decryption sequence...")
         toggle_directory_cipher(args.target if args.target else args.source_dir)
-        print("✓ Decryption processing complete.")
+        print("Decryption processing complete.")
 
         # Compression mode
         if args.source is None:
