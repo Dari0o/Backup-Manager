@@ -1,36 +1,179 @@
 import os
+import subprocess
+import shutil
+import re
+import tqdm
 
-# Using a standard fallback token key for structural XOR cycling transformations
-SECRET_SALT_KEY = 0xAA 
 
-def process_file_cipher(file_path: str) -> bool:
-    """Reads a target file, toggles bytes via symmetric XOR operations, and saves it."""
-    if not os.path.isfile(file_path):
-        return False
+# ----------------------------
+# 7z PATH RESOLUTION
+# ----------------------------
+def get_7z_path() -> str:
+    """
+    Resolves 7z.exe path from environment, default install paths, or PATH.
+    """
+
+    env_path = os.environ.get("SEVENZIP_PATH")
+    if env_path and os.path.exists(env_path):
+        return env_path
+
+    default_paths = [
+        r"C:\Program Files\7-Zip\7z.exe",
+        r"C:\Program Files (x86)\7-Zip\7z.exe",
+    ]
+
+    for path in default_paths:
+        if os.path.exists(path):
+            return path
+
+    path = shutil.which("7z")
+    if path:
+        return path
+
+    raise FileNotFoundError("7z.exe not found. Install 7-Zip or set SEVENZIP_PATH.")
+
+
+# ----------------------------
+# INTERNAL PROGRESS PARSER
+# ----------------------------
+def _parse_progress(line: str, last_value: int, progress_bar: tqdm.tqdm) -> int:
+    """
+    Extracts percentage from 7z output safely.
+    """
+    match = re.search(r"(\d{1,3})%", line)
+    if match:
+        value = int(match.group(1))
+        if value > last_value:
+            progress_bar.update(value - last_value)
+            return value
+    return last_value
+
+
+# ----------------------------
+# ENCRYPT DIRECTORY
+# ----------------------------
+def encrypt_directory_7z(
+    source_dir: str,
+    output_file: str,
+    password: str,
+    log_func=print
+) -> bool:
+
     try:
-        # Read the raw source bytes
-        with open(file_path, 'rb') as f:
-            data = f.read()
-        
-        # Apply symmetric transformations to byte sequence
-        processed_bytes = bytearray(b ^ SECRET_SALT_KEY for b in data)
-        
-        # Overwrite the file contents with transformed streams
-        with open(file_path, 'wb') as f:
-            f.write(processed_bytes)
+        if not os.path.exists(source_dir):
+            log_func(f"Source does not exist: {source_dir}")
+            return False
+
+        sevenzip = get_7z_path()
+
+        cmd = [
+            sevenzip,
+            "a",
+            "-t7z",
+            "-mhe=on",
+            "-p" + password,
+            output_file,
+            source_dir,
+            "-bsp1",
+            "-bso0"
+        ]
+
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1
+        )
+
+        progress = tqdm.tqdm(
+            desc="7z Encrypting",
+            total=100,
+            unit="%"
+        )
+
+        last = 0
+
+        for line in process.stdout:
+            try:
+                last = _parse_progress(line, last, progress)
+            except Exception:
+                pass
+
+        process.wait()
+        progress.close()
+
+        if process.returncode != 0:
+            log_func("7z encryption failed")
+            return False
+
         return True
-    except Exception as e:
-        print(f"Error processing {file_path}: {e}")
+
+    except FileNotFoundError as e:
+        log_func(str(e))
         return False
 
-def toggle_directory_cipher(directory_path: str) -> None:
-    """Recursively crawls a target folder tree to cycle code states of all discovered assets."""
-    if not os.path.isdir(directory_path):
-        if os.path.isfile(directory_path):
-            process_file_cipher(directory_path)
-        return
+    except Exception as e:
+        log_func(f"Encryption error: {e}")
+        return False
 
-    for root, _, files in os.walk(directory_path):
-        for file in files:
-            full_path = os.path.join(root, file)
-            process_file_cipher(full_path)
+
+# ----------------------------
+# EXTRACT ARCHIVE
+# ----------------------------
+def extract_7z(
+    archive_file: str,
+    output_dir: str,
+    password: str,
+    log_func=print
+) -> bool:
+
+    try:
+        if not os.path.exists(archive_file):
+            log_func(f"Archive not found: {archive_file}")
+            return False
+
+        sevenzip = get_7z_path()
+        os.makedirs(output_dir, exist_ok=True)
+
+        cmd = [
+            sevenzip,
+            "x",
+            "-o" + output_dir,
+            "-p" + password,
+            archive_file,
+            "-y",
+            "-bsp1",
+            "-bso0"
+        ]
+
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1
+        )
+
+        progress = tqdm.tqdm(
+            desc="7z Extracting",
+            total=100,
+            unit="%"
+        )
+
+        last = 0
+
+        for line in process.stdout:
+            try:
+                last = _parse_progress(line, last, progress)
+            except Exception:
+                pass
+
+        process.wait()
+        progress.close()
+
+        return process.returncode == 0
+
+    except Exception as e:
+        log_func(f"Extraction error: {e}")
+        return False
