@@ -10,7 +10,7 @@ import tqdm as tqdm_
 from prompt_toolkit import prompt
 from prompt_toolkit.completion import PathCompleter
 from typing import List, Dict, Tuple, Optional, Union, Any
-from crypto_utils import toggle_directory_cipher
+from crypto_utils import encrypt_directory_7z, extract_7z
 
 try:
     from exclude_list import should_ignore_path
@@ -36,7 +36,7 @@ def should_ignore(entry) -> bool:
 log_dir = r"\\pi4\Share\Backup"
 log_file = os.path.join(log_dir, "backup.log")
 THREADS = 32  # min(8, max(1, os.cpu_count() // 1.5))
-VERSION = "1.1.1"  # Current version
+VERSION = "1.1.2"  # Current version
 IGNORE_EXCLUDE_LIST = False
 
 
@@ -524,7 +524,7 @@ def main(source_dir: Optional[str] = None, target_dir: Optional[str] = None) -> 
             '~'
 
 B a c k u p  -  M a n a g e r 
-          v 1.1.1
+          v 1.1.2
     """)
 
     # If directories not provided as arguments, prompt interactively
@@ -703,6 +703,7 @@ Examples:
   python BackupManager.py --source D:\\Data --target \\\\nas\\backup --mirror
   python BackupManager.py --source D:\\Data --target \\\\nas\\backup -c 6
   python BackupManager.py -c 6
+  python BackupManager.py --sevenzip --password 1234  --source D:\\Data --target \\\\nas\\backup
   python BackupManager.py --update
         """
     )
@@ -731,14 +732,20 @@ Examples:
         help='Enable mirror mode (delete files in target that are not in source)'
     )
     parser.add_argument(
-        '-e', '--encrypt',
+        '--sevenzip',
         action='store_true',
-        help='Encrypt the backup directories/files'
+        help='Enable 7z encrypted backup mode'
     )
     parser.add_argument(
-        '-d', '--decrypt',
+        '--password',
+        type=str,
+        help='Password for 7z encryption',
+        default=None
+    )
+    parser.add_argument(
+        '--update',
         action='store_true',
-        help='Decrypt the backup directories/files'
+        help='Check for and install updates'
     )
     parser.add_argument(
         '-i',
@@ -746,12 +753,6 @@ Examples:
         dest='ignore_excludes',
         help='Ignore exclude list and copy all files'
     )
-    parser.add_argument(
-        '--update',
-        action='store_true',
-        help='Check for and install updates'
-    )
-    
     args = parser.parse_args()
     
     # Set ignore-exclude-list flag before any scanning begins
@@ -768,17 +769,65 @@ Examples:
             print("ERROR: compression.py could not be imported")
             sys.exit(0)
         
-# Run encryption transformation if flag is provided
-    if args.encrypt:
-        print("Initializing symmetric file encryption sequence...")
-        toggle_directory_cipher(args.target if args.target else args.source_dir)
-        print("Encryption processing complete.")
+    if args.sevenzip:
+        log("Initializing 7z encrypted backup...")
 
+        if not args.password:
+            log("ERROR: --password is required")
+            sys.exit(1)
+
+        if not args.source:
+            log("ERROR: --source is required")
+            sys.exit(1)
+
+        # target is folder → not file
+        target_dir = args.target or os.getcwd()
+
+        os.makedirs(target_dir, exist_ok=True)
+
+        timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+
+        output_file = os.path.join(
+            target_dir,
+            f"backup_{timestamp}.7z"
+        )
+
+        success = encrypt_directory_7z(
+            source_dir=args.source,
+            output_file=output_file,
+            password=args.password,
+            log_func=log
+        )
+
+        if success:
+            log(f"Backup completed: {output_file}")
+        else:
+            log("Backup failed")
+
+    sys.exit(0)
     # Run decryption transformation if flag is provided
     if args.decrypt:
-        print("Initializing symmetric file decryption sequence...")
-        toggle_directory_cipher(args.target if args.target else args.source_dir)
-        print("Decryption processing complete.")
+        log("Extracting 7z archive...")
+
+        if not args.password:
+            log("ERROR: --password is required for decryption")
+            sys.exit(1)
+
+        output_dir = args.target or os.path.join(os.getcwd(), "extracted")
+
+        success = extract_7z(
+            archive_file=args.source,
+            output_dir=output_dir,
+            password=args.password,
+            log_func=log
+        )
+
+        if success:
+            log("Extraction completed successfully")
+        else:
+            log("Extraction failed")
+
+        sys.exit(0)
 
         # Compression mode
         if args.source is None:
