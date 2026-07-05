@@ -15,7 +15,7 @@ from crypto_utils import encrypt_directory_7z
 try:
     from exclude_list import should_ignore_path
 except ImportError:
-    def should_ignore_path() -> bool:
+    def should_ignore_path(entry) -> bool:
         return False
 
 try:
