@@ -839,80 +839,80 @@ B a c k u p  -  M a n a g e r
             """)
             
         # Interactive mode
-    if args.source is None:
+        if args.source is None:
 
-        while True:
-            source_dir = prompt(
-                "Please enter the source directory: ",
-                completer=PathCompleter(
-                    expanduser=True,
-                    only_directories=True
-                ),
-                complete_while_typing=True
-            ).strip()
+            while True:
+                source_dir = prompt(
+                    "Please enter the source directory: ",
+                    completer=PathCompleter(
+                        expanduser=True,
+                        only_directories=True
+                    ),
+                    complete_while_typing=True
+                ).strip()
 
-            if not source_dir:
-                print("ERROR: Please enter a path")
-                continue
+                if not source_dir:
+                    print("ERROR: Please enter a path")
+                    continue
 
-            if not os.path.exists(source_dir):
-                print(f"ERROR: Source directory does not exist: {source_dir}")
-                continue
+                if not os.path.exists(source_dir):
+                    print(f"ERROR: Source directory does not exist: {source_dir}")
+                    continue
 
-            break
+                break
 
-        timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
-        output_zip = os.path.join(
-            os.path.expanduser("~"),
-            f"backup_{timestamp}.zip"
-        )
-
-        user_output = prompt(
-            f"Output ZIP file [{output_zip}]: ",
-            completer=PathCompleter(
-                expanduser=True,
-                only_directories=False
-            ),
-            complete_while_typing=True
-        ).strip()
-
-        if user_output:
-            output_zip = user_output
-
-    # CLI mode
-    else:
-
-        source_dir = args.source
-
-        if not os.path.exists(source_dir):
-            print(f"ERROR: Source directory does not exist: {source_dir}")
-            sys.exit(1)
-
-        if args.target:
-            output_zip = args.target
-        else:
             timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
             output_zip = os.path.join(
                 os.path.expanduser("~"),
                 f"backup_{timestamp}.zip"
             )
+
+            user_output = prompt(
+                f"Output ZIP file [{output_zip}]: ",
+                completer=PathCompleter(
+                    expanduser=True,
+                    only_directories=False
+                ),
+                complete_while_typing=True
+            ).strip()
+
+            if user_output:
+                output_zip = user_output
+
+        # CLI mode
+        else:
+
+            source_dir = args.source
+
+            if not os.path.exists(source_dir):
+                print(f"ERROR: Source directory does not exist: {source_dir}")
+                sys.exit(1)
+
+            if args.target:
+                output_zip = args.target
+            else:
+                timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+                output_zip = os.path.join(
+                    os.path.expanduser("~"),
+                    f"backup_{timestamp}.zip"
+                )
         
-    # Start compression
-    try:
-        compress_to_zip(source_dir, output_zip, compression_level, log_func=log, should_ignore_func=should_ignore, num_threads=THREADS)
-    except KeyboardInterrupt:
-        log("Compression aborted by user")
-        if os.path.exists(output_zip):
-            try:
-                os.remove(output_zip)
-                log(f"Incomplete ZIP file deleted: {output_zip}")
-            except:
-                pass
-    except Exception as e:
-        log(f"Compression error: {e}")
-        sys.exit(1)
+        # Start compression
+        try:
+            compress_to_zip(source_dir, output_zip, compression_level, log_func=log, should_ignore_func=should_ignore, num_threads=THREADS)
+        except KeyboardInterrupt:
+            log("Compression aborted by user")
+            if os.path.exists(output_zip):
+                try:
+                    os.remove(output_zip)
+                    log(f"Incomplete ZIP file deleted: {output_zip}")
+                except:
+                    pass
+        except Exception as e:
+            log(f"Compression error: {e}")
+            sys.exit(1)
         
-    sys.exit(0)
+        sys.exit(0)
 
     # Check if update mode is enabled
     is_update = args.update
