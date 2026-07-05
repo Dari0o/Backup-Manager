@@ -60,7 +60,7 @@ def _write_file_list(file_list_path: str, paths: list[str], base_dir: str) -> No
             handle.write(rel_path + "\n")
 
 
-def compress_to_zip(source_path: str, output_zip: str, compression_level: int = 3, log_func=None, should_ignore_func=None, num_threads: int = 32) -> bool:
+def compress_to_zip(source_path: str, output_zip: str, compression_level: int = 3, log_func=None, should_ignore_func=None, num_threads: int = 1) -> bool:
     """
     Compresses a directory or file into a ZIP archive using 7-Zip.
 
