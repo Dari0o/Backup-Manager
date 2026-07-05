@@ -511,7 +511,7 @@ def get_directories_interactive() -> Tuple[str, str]:
 
 def main(source_dir: Optional[str] = None, target_dir: Optional[str] = None) -> None:
 
-    print(r"""
+    print(fr"""
         .~~.   .~~.
        '. \ ' ' / .'
         .~ .~~~..~.
@@ -524,7 +524,7 @@ def main(source_dir: Optional[str] = None, target_dir: Optional[str] = None) -> 
             '~'
 
 B a c k u p  -  M a n a g e r 
-          v 1.1.2
+          v {VERSION}
     """)
 
     # If directories not provided as arguments, prompt interactively
@@ -822,7 +822,7 @@ Examples:
 
     # Interactive compression mode
     if args.compression:
-        print(r"""
+        print(fr"""
         .~~.   .~~.
        '. \ ' ' / .'
         .~ .~~~..~.
@@ -835,7 +835,7 @@ Examples:
             '~'
 
 B a c k u p  -  M a n a g e r 
-          v 1.1.2
+          v {VERSION}
             """)
             
         # Interactive mode
