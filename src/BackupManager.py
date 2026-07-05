@@ -33,7 +33,7 @@ def should_ignore(entry) -> bool:
 # ----------------------------
 # Global Variables
 # ----------------------------
-log_dir = r"\\pi4\Share\Backup"
+log_dir = os.path.dirname(os.path.abspath(__file__))
 log_file = os.path.join(log_dir, "backup.log")
 THREADS = 32  # min(8, max(1, os.cpu_count() // 1.5))
 VERSION = "1.1.2"  # Current version
