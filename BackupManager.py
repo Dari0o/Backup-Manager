@@ -5,17 +5,17 @@ import argparse
 import importlib.util
 import subprocess
 from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor, as_completed, wait
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import tqdm as tqdm_
 from prompt_toolkit import prompt
 from prompt_toolkit.completion import PathCompleter
 from typing import List, Dict, Tuple, Optional, Union, Any
-from crypto_utils import encrypt_directory_7z, extract_7z
+from crypto_utils import encrypt_directory_7z
 
 try:
     from exclude_list import should_ignore_path
 except ImportError:
-    def should_ignore_path(entry) -> bool:
+    def should_ignore_path() -> bool:
         return False
 
 try:
@@ -694,7 +694,7 @@ if __name__ == "__main__":
 
     # Create argument parser
     parser = argparse.ArgumentParser(
-        description="BackupManager - A fast backup tool with mirror mode support",
+        description="BackupManager - A fast backup utility",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -758,6 +758,15 @@ Examples:
     # Set ignore-exclude-list flag before any scanning begins
     IGNORE_EXCLUDE_LIST = args.ignore_excludes
 
+    # Validate argument combinations
+    if args.mirror and (args.sevenzip or args.password):
+        input("ERROR: Mirror mode is not compatible with 7z encrypted backup")
+        sys.exit(0)
+
+    if args.update and (args.sevenzip or args.password or args.source or args.target or args.mirror or args.compression or args.ignore_excludes):
+        input("ERROR: Update mode cannot be combined with other options. Press enter to exit . . .")
+        sys.exit(0)
+
     # Check if compression mode is enabled
     compression_level = args.compression
     if compression_level is not None:
@@ -778,6 +787,10 @@ Examples:
 
         if not args.source:
             log("ERROR: --source is required")
+            sys.exit(1)
+
+        if not args.target:
+            log("ERROR: --target is required")
             sys.exit(1)
 
         # target is folder → not file
@@ -804,35 +817,12 @@ Examples:
         else:
             log("Backup failed")
 
-    sys.exit(0)
-    # Run decryption transformation if flag is provided
-    if args.decrypt:
-        log("Extracting 7z archive...")
-
-        if not args.password:
-            log("ERROR: --password is required for decryption")
-            sys.exit(1)
-
-        output_dir = args.target or os.path.join(os.getcwd(), "extracted")
-
-        success = extract_7z(
-            archive_file=args.source,
-            output_dir=output_dir,
-            password=args.password,
-            log_func=log
-        )
-
-        if success:
-            log("Extraction completed successfully")
-        else:
-            log("Extraction failed")
-
         sys.exit(0)
 
-        # Compression mode
-        if args.source is None:
-            # Interactive input for compression mode
-            print(r"""
+
+    # Interactive compression mode
+    if args.compression:
+        print(r"""
         .~~.   .~~.
        '. \ ' ' / .'
         .~ .~~~..~.
@@ -845,77 +835,87 @@ Examples:
             '~'
 
 B a c k u p  -  M a n a g e r 
-          v 1.1.1
+          v 1.1.2
             """)
             
-            while True:
-                source_dir = prompt(
-                    "Please enter the source directory: ",
-                    completer=PathCompleter(
-                        expanduser=True, only_directories=True),
-                    complete_while_typing=True
-                ).strip()
-                
-                if not source_dir:
-                    print("ERROR: Please enter a path")
-                    continue
-                
-                if not os.path.exists(source_dir):
-                    print(f"ERROR: Source directory does not exist: {source_dir}")
-                    continue
-                
-                break
-            
-            # Output filename
-            timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
-            output_zip = os.path.join(os.path.expanduser("~"), f"backup_{timestamp}.zip")
-            user_output = prompt(
-                f"Output ZIP file [{output_zip}]: ",
+        # Interactive mode
+    if args.source is None:
+
+        while True:
+            source_dir = prompt(
+                "Please enter the source directory: ",
                 completer=PathCompleter(
                     expanduser=True,
-                    only_directories=False
+                    only_directories=True
                 ),
                 complete_while_typing=True
             ).strip()
-            
-            if user_output:
-                output_zip = user_output
-        else:
-            # Source provided
-            source_dir = args.source
-            
+
+            if not source_dir:
+                print("ERROR: Please enter a path")
+                continue
+
             if not os.path.exists(source_dir):
                 print(f"ERROR: Source directory does not exist: {source_dir}")
-                sys.exit(1)
-            
-            # Determine output filename
-            if args.target:
-                output_zip = args.target
-            else:
-                timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
-                output_zip = os.path.join(os.path.expanduser("~"), f"backup_{timestamp}.zip")
-        
-        # Start compression
-        try:
-            compress_to_zip(source_dir, output_zip, compression_level, log_func=log, should_ignore_func=should_ignore, num_threads=THREADS)
-        except KeyboardInterrupt:
-            log("Compression aborted by user")
-            if os.path.exists(output_zip):
-                try:
-                    os.remove(output_zip)
-                    log(f"Incomplete ZIP file deleted: {output_zip}")
-                except:
-                    pass
-        except Exception as e:
-            log(f"Compression error: {e}")
+                continue
+
+            break
+
+        timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+        output_zip = os.path.join(
+            os.path.expanduser("~"),
+            f"backup_{timestamp}.zip"
+        )
+
+        user_output = prompt(
+            f"Output ZIP file [{output_zip}]: ",
+            completer=PathCompleter(
+                expanduser=True,
+                only_directories=False
+            ),
+            complete_while_typing=True
+        ).strip()
+
+        if user_output:
+            output_zip = user_output
+
+    # CLI mode
+    else:
+
+        source_dir = args.source
+
+        if not os.path.exists(source_dir):
+            print(f"ERROR: Source directory does not exist: {source_dir}")
             sys.exit(1)
+
+        if args.target:
+            output_zip = args.target
+        else:
+            timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+            output_zip = os.path.join(
+                os.path.expanduser("~"),
+                f"backup_{timestamp}.zip"
+            )
         
-        sys.exit(0)
+    # Start compression
+    try:
+        compress_to_zip(source_dir, output_zip, compression_level, log_func=log, should_ignore_func=should_ignore, num_threads=THREADS)
+    except KeyboardInterrupt:
+        log("Compression aborted by user")
+        if os.path.exists(output_zip):
+            try:
+                os.remove(output_zip)
+                log(f"Incomplete ZIP file deleted: {output_zip}")
+            except:
+                pass
+    except Exception as e:
+        log(f"Compression error: {e}")
+        sys.exit(1)
+        
+    sys.exit(0)
 
     # Check if update mode is enabled
     is_update = args.update
-    # Mirror/Delete-Sync mode
-    MIRROR_MODE = args.mirror
 
     if is_update:
 
