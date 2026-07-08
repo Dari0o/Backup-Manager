@@ -1,7 +1,11 @@
+import io
+import os
+import zipfile
 from unittest.mock import patch, MagicMock
 
 import BackupManager as bm
 import compression as compression_module
+
 
 
 # ----------------------------
@@ -176,3 +180,95 @@ def test_compress_to_zip_stores_wav_without_compression(tmp_path):
     commands = [call.args[0] for call in mock_run.call_args_list]
     assert commands[0][3] == "-mx=1"
     assert commands[1][3] == "-mx=0"
+
+
+def _build_fake_release_zip(root_folder_name: str, files: dict) -> bytes:
+    """Builds an in-memory zip mimicking a GitHub zipball download:
+    a single top-level folder containing the release's files."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        for rel_path, content in files.items():
+            zf.writestr(f"{root_folder_name}/{rel_path}", content)
+    return buf.getvalue()
+
+
+def test_install_update_removes_old_files_not_in_new_release(tmp_path, monkeypatch):
+    # Simulate the install directory as if BackupManager.py lives there
+    script_dir = tmp_path / "Backup-Manager"
+    script_dir.mkdir()
+
+    # Old (pre-restructure) files that should NOT survive the update
+    (script_dir / "BackupManager.py").write_text("old root-level script", encoding="utf-8")
+    (script_dir / "old_helper.py").write_text("stale helper", encoding="utf-8")
+    old_pkg_dir = script_dir / "old_package"
+    old_pkg_dir.mkdir()
+    (old_pkg_dir / "module.py").write_text("stale package file", encoding="utf-8")
+
+    # Point BackupManager's __file__ at our fake install directory so
+    # script_dir inside install_update resolves to our tmp_path fixture
+    monkeypatch.setattr(bm, "__file__", str(script_dir / "BackupManager.py"))
+
+    # Build a fake GitHub zipball with the *new* release's structure
+    zip_bytes = _build_fake_release_zip(
+        "Dari0o-Backup-Manager-abcdef1",
+        {
+            "src/BackupManager.py": "new script content",
+            "README.md": "new readme",
+        },
+    )
+
+    mock_response = MagicMock()
+    mock_response.content = zip_bytes
+    mock_response.raise_for_status = MagicMock()
+
+    with patch("requests.get", return_value=mock_response):
+        result = bm.install_update(
+            {"version": "1.1.2", "download_url": "http://example.com/release.zip"}
+        )
+
+    assert result is True
+
+    remaining = set(os.listdir(script_dir))
+
+    # Only the new release's top-level items should remain
+    assert remaining == {"src", "README.md"}
+
+    # Old files/dirs must be gone
+    assert not (script_dir / "BackupManager.py").exists()
+    assert not (script_dir / "old_helper.py").exists()
+    assert not old_pkg_dir.exists()
+
+    # New files must be present with correct content
+    assert (script_dir / "src" / "BackupManager.py").read_text(encoding="utf-8") == "new script content"
+    assert (script_dir / "README.md").read_text(encoding="utf-8") == "new readme"
+
+    # Update's own working artifacts should be cleaned up afterward
+    assert not (script_dir / "update_temp").exists()
+    assert not (script_dir / "update.zip").exists()
+
+
+def test_install_update_handles_empty_zip(tmp_path, monkeypatch):
+    script_dir = tmp_path / "Backup-Manager"
+    script_dir.mkdir()
+    (script_dir / "BackupManager.py").write_text("old script", encoding="utf-8")
+
+    monkeypatch.setattr(bm, "__file__", str(script_dir / "BackupManager.py"))
+
+    # Empty zip: no top-level entries at all
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w"):
+        pass
+    zip_bytes = buf.getvalue()
+
+    mock_response = MagicMock()
+    mock_response.content = zip_bytes
+    mock_response.raise_for_status = MagicMock()
+
+    with patch("requests.get", return_value=mock_response):
+        result = bm.install_update(
+            {"version": "1.1.2", "download_url": "http://example.com/release.zip"}
+        )
+
+    assert result is False
+    # Nothing should have been deleted since we bail out before cleanup
+    assert (script_dir / "BackupManager.py").read_text(encoding="utf-8") == "old script"

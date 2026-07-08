@@ -251,7 +251,13 @@ def check_for_update() -> Optional[Dict[str, Any]]:
 
 
 def install_update(release_info: Dict[str, Any]) -> bool:
-    """Installs a new release"""
+    """Installs a new release.
+
+    Downloads the newest GitHub release, extracts it to a temp folder,
+    then replaces everything in the install directory with the newest
+    release's contents so that no files/directories from a previous
+    version are left behind.
+    """
     try:
         import requests
         import zipfile
@@ -268,6 +274,8 @@ def install_update(release_info: Dict[str, Any]) -> bool:
             f.write(response.content)
 
         extract_dir = os.path.join(script_dir, "update_temp")
+        if os.path.exists(extract_dir):
+            shutil.rmtree(extract_dir)
         os.makedirs(extract_dir, exist_ok=True)
 
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
@@ -279,25 +287,45 @@ def install_update(release_info: Dict[str, Any]) -> bool:
             source_dir = os.path.join(extract_dir, extracted_contents[0])
         else:
             log("Error: ZIP file is empty")
+            shutil.rmtree(extract_dir, ignore_errors=True)
+            os.remove(zip_path)
             return False
 
-        for item in os.listdir(source_dir):
+        # These are the update process's own working artifacts. They
+        # must survive the cleanup step below (we're still using them)
+        # and are removed separately once the copy is finished.
+        UPDATE_ARTIFACTS = {"update_temp", "update.zip"}
 
+        # Remove everything currently in the install directory that
+        # isn't one of the update's own working artifacts, so that
+        # only the newest release's files/directories remain once we
+        # copy it in below. This is what fixes old-version files (e.g.
+        # a pre-src-restructure BackupManager.py) being left behind.
+        for item in os.listdir(script_dir):
+            if item in UPDATE_ARTIFACTS:
+                continue
+
+            old_path = os.path.join(script_dir, item)
+
+            try:
+                if os.path.isdir(old_path) and not os.path.islink(old_path):
+                    shutil.rmtree(old_path)
+                else:
+                    os.remove(old_path)
+            except OSError as e:
+                log(f"Error removing old file {old_path}: {e}")
+
+        # Copy the newest release's contents into the now-cleared
+        # install directory.
+        for item in os.listdir(source_dir):
             src = os.path.join(source_dir, item)
             dst = os.path.join(script_dir, item)
 
             if os.path.isdir(src):
-
-                if os.path.exists(dst):
-                    shutil.rmtree(dst)
-
                 shutil.copytree(src, dst)
-
             else:
-
                 try:
                     shutil.copy2(src, dst)
-
                 except OSError as e:
                     log(f"Error copying {src} to {dst}: {e}")
 
@@ -310,7 +338,6 @@ def install_update(release_info: Dict[str, Any]) -> bool:
     except Exception as e:
         log(f"Update installation error: {e}")
         return False
-
 
 def copy_file(src: str, dst_base: str, src_base: str, progress: Any) -> None:
 
