@@ -36,7 +36,7 @@ def should_ignore(entry) -> bool:
 log_dir = os.path.dirname(os.path.abspath(__file__))
 log_file = os.path.join(log_dir, "backup.log")
 THREADS = 32  # min(8, max(1, os.cpu_count() // 1.5))
-VERSION = "1.1.2"  # Current version
+VERSION = "1.1.3"  # Current version
 IGNORE_EXCLUDE_LIST = False
 
 
@@ -254,9 +254,8 @@ def install_update(release_info: Dict[str, Any]) -> bool:
     """Installs a new release.
 
     Downloads the newest GitHub release, extracts it to a temp folder,
-    then replaces everything in the install directory with the newest
-    release's contents so that no files/directories from a previous
-    version are left behind.
+    then replaces everything in the project root directory with the
+    newest release's contents.
     """
     try:
         import requests
@@ -264,8 +263,13 @@ def install_update(release_info: Dict[str, Any]) -> bool:
 
         log(f"Installing update {release_info['version']}...")
 
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        zip_path = os.path.join(script_dir, "update.zip")
+        # Project root directory (one level above src/)
+        install_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+        # Current running script
+        current_file = os.path.abspath(__file__)
+
+        zip_path = os.path.join(install_dir, "update.zip")
 
         response = requests.get(release_info["download_url"], timeout=30)
         response.raise_for_status()
@@ -273,64 +277,82 @@ def install_update(release_info: Dict[str, Any]) -> bool:
         with open(zip_path, "wb") as f:
             f.write(response.content)
 
-        extract_dir = os.path.join(script_dir, "update_temp")
+        extract_dir = os.path.join(install_dir, "update_temp")
+
         if os.path.exists(extract_dir):
-            shutil.rmtree(extract_dir)
+            shutil.rmtree(extract_dir, ignore_errors=True)
+
         os.makedirs(extract_dir, exist_ok=True)
 
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+        with zipfile.ZipFile(zip_path, "r") as zip_ref:
             zip_ref.extractall(extract_dir)
 
         extracted_contents = os.listdir(extract_dir)
 
-        if extracted_contents:
-            source_dir = os.path.join(extract_dir, extracted_contents[0])
-        else:
+        if not extracted_contents:
             log("Error: ZIP file is empty")
             shutil.rmtree(extract_dir, ignore_errors=True)
             os.remove(zip_path)
             return False
 
-        # These are the update process's own working artifacts. They
-        # must survive the cleanup step below (we're still using them)
-        # and are removed separately once the copy is finished.
-        UPDATE_ARTIFACTS = {"update_temp", "update.zip"}
+        # Handle GitHub ZIP structure
+        if (
+            len(extracted_contents) == 1
+            and os.path.isdir(os.path.join(extract_dir, extracted_contents[0]))
+        ):
+            source_dir = os.path.join(extract_dir, extracted_contents[0])
+        else:
+            source_dir = extract_dir
 
-        # Remove everything currently in the install directory that
-        # isn't one of the update's own working artifacts, so that
-        # only the newest release's files/directories remain once we
-        # copy it in below. This is what fixes old-version files (e.g.
-        # a pre-src-restructure BackupManager.py) being left behind.
-        for item in os.listdir(script_dir):
-            if item in UPDATE_ARTIFACTS:
+        # Remove old files and folders
+        for item in os.listdir(install_dir):
+
+            old_path = os.path.join(install_dir, item)
+
+            # Keep update working files until cleanup
+            if old_path in [zip_path, extract_dir]:
                 continue
 
-            old_path = os.path.join(script_dir, item)
+            # Keep Git repository
+            if item == ".git":
+                continue
 
             try:
                 if os.path.isdir(old_path) and not os.path.islink(old_path):
+
+                    # Prevent deleting currently running source directory
+                    if os.path.commonpath([current_file, old_path]) == old_path:
+                        #log(f"Skipping active directory: {old_path}")
+                        continue
+
                     shutil.rmtree(old_path)
+
                 else:
                     os.remove(old_path)
+
             except OSError as e:
                 log(f"Error removing old file {old_path}: {e}")
 
-        # Copy the newest release's contents into the now-cleared
-        # install directory.
+        # Copy new release files
         for item in os.listdir(source_dir):
+
             src = os.path.join(source_dir, item)
-            dst = os.path.join(script_dir, item)
+            dst = os.path.join(install_dir, item)
 
-            if os.path.isdir(src):
-                shutil.copytree(src, dst)
-            else:
-                try:
+            try:
+                if os.path.isdir(src):
+                    shutil.copytree(src, dst, dirs_exist_ok=True)
+                else:
                     shutil.copy2(src, dst)
-                except OSError as e:
-                    log(f"Error copying {src} to {dst}: {e}")
 
-        shutil.rmtree(extract_dir)
-        os.remove(zip_path)
+            except OSError as e:
+                log(f"Error copying {src} to {dst}: {e}")
+
+        # Cleanup
+        shutil.rmtree(extract_dir, ignore_errors=True)
+
+        if os.path.exists(zip_path):
+            os.remove(zip_path)
 
         log("Update installed successfully")
         return True
@@ -953,8 +975,10 @@ B a c k u p  -  M a n a g e r
         print("Checking for updates...")
 
         release_info = check_for_update()
+        current_version= get_current_version()
 
-        if release_info:
+        # Check if available version is newer
+        if release_info and compare_versions(current_version, release_info['version']):
 
             print(f"Update available: {release_info['version']}")
             print("Installing update...")
@@ -963,7 +987,7 @@ B a c k u p  -  M a n a g e r
                 print("Update installed successfully!")
 
             else:
-                print("Update installation failed!")
+                log("Update installation failed!")
 
         else:
             print("No new updates available.")
@@ -976,12 +1000,7 @@ B a c k u p  -  M a n a g e r
         # print(f"BackupManager v{current_version}")
 
         release_info = check_for_update()
-
-        if release_info:
-
-            # Check if available version is newer
-            if compare_versions(current_version, release_info['version']):
-
+        if release_info and compare_versions(current_version, release_info['version']):
                 print(f"\n✓ Update available: v{release_info['version']}")
                 print(
                     "Run BackupManager.py --update to install the update\n"
