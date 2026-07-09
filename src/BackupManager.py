@@ -264,7 +264,16 @@ def install_update(release_info: Dict[str, Any]) -> bool:
         log(f"Installing update {release_info['version']}...")
 
         # Project root directory (one level above src/)
-        install_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+
+        # Support both layouts:
+        # 1. project/src/BackupManager.py
+        #   2. project/BackupManager.py (tests / old versions)
+
+        if os.path.basename(current_dir) == "src":
+            install_dir = os.path.dirname(current_dir)
+        else:
+            install_dir = current_dir
 
         # Current running script
         current_file = os.path.abspath(__file__)
