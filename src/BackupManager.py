@@ -318,22 +318,16 @@ def install_update(release_info: Dict[str, Any]) -> bool:
 
             old_path = os.path.join(install_dir, item)
 
-            # Keep update working files until cleanup
-            if old_path in [zip_path, extract_dir]:
+            # Keep update files until cleanup
+            if old_path == zip_path or old_path == extract_dir:
                 continue
 
-            # Keep Git repository
-            if item == ".git":
+            # Never delete the currently running python file
+            if os.path.abspath(old_path) == current_file:
                 continue
 
             try:
                 if os.path.isdir(old_path) and not os.path.islink(old_path):
-
-                    # Prevent deleting currently running source directory
-                    if os.path.commonpath([current_file, old_path]) == old_path:
-                        #log(f"Skipping active directory: {old_path}")
-                        continue
-
                     shutil.rmtree(old_path)
 
                 else:
