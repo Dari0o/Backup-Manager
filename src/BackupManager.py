@@ -328,7 +328,7 @@ def install_update(release_info: Dict[str, Any]) -> bool:
 
             try:
                 if os.path.isdir(old_path) and not os.path.islink(old_path):
-                    shutil.rmtree(old_path)
+                    shutil.rmtree(old_path, ignore_errors=True)
 
                 else:
                     os.remove(old_path)
@@ -985,12 +985,6 @@ B a c k u p  -  M a n a g e r
 
             print(f"Update available: {release_info['version']}")
             print("Installing update...")
-
-            if install_update(release_info):
-                print("Update installed successfully!")
-
-            else:
-                log("Update installation failed!")
 
         else:
             print("No new updates available.")
