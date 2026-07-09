@@ -193,22 +193,39 @@ def _build_fake_release_zip(root_folder_name: str, files: dict) -> bytes:
 
 
 def test_install_update_removes_old_files_not_in_new_release(tmp_path, monkeypatch):
-    # Simulate the install directory as if BackupManager.py lives there
+    # Simulate the current install directory with src structure
     script_dir = tmp_path / "Backup-Manager"
+    src_dir = script_dir / "src"
     script_dir.mkdir()
+    src_dir.mkdir()
 
-    # Old (pre-restructure) files that should NOT survive the update
-    (script_dir / "BackupManager.py").write_text("old root-level script", encoding="utf-8")
-    (script_dir / "old_helper.py").write_text("stale helper", encoding="utf-8")
+    # Old files that should NOT survive the update
+    (src_dir / "BackupManager.py").write_text(
+        "old script content",
+        encoding="utf-8"
+    )
+
+    (script_dir / "old_helper.py").write_text(
+        "stale helper",
+        encoding="utf-8"
+    )
+
     old_pkg_dir = script_dir / "old_package"
     old_pkg_dir.mkdir()
-    (old_pkg_dir / "module.py").write_text("stale package file", encoding="utf-8")
 
-    # Point BackupManager's __file__ at our fake install directory so
-    # script_dir inside install_update resolves to our tmp_path fixture
-    monkeypatch.setattr(bm, "__file__", str(script_dir / "BackupManager.py"))
+    (old_pkg_dir / "module.py").write_text(
+        "stale package file",
+        encoding="utf-8"
+    )
 
-    # Build a fake GitHub zipball with the *new* release's structure
+    # Point __file__ to the actual src location
+    monkeypatch.setattr(
+        bm,
+        "__file__",
+        str(src_dir / "BackupManager.py")
+    )
+
+    # Build fake GitHub release ZIP
     zip_bytes = _build_fake_release_zip(
         "Dari0o-Backup-Manager-abcdef1",
         {
@@ -221,28 +238,41 @@ def test_install_update_removes_old_files_not_in_new_release(tmp_path, monkeypat
     mock_response.content = zip_bytes
     mock_response.raise_for_status = MagicMock()
 
-    with patch("requests.get", return_value=mock_response):
+    with patch(
+        "requests.get",
+        return_value=mock_response
+    ):
         result = bm.install_update(
-            {"version": "1.1.2", "download_url": "http://example.com/release.zip"}
+            {
+                "version": "1.1.2",
+                "download_url": "http://example.com/release.zip"
+            }
         )
 
     assert result is True
 
     remaining = set(os.listdir(script_dir))
 
-    # Only the new release's top-level items should remain
-    assert remaining == {"src", "README.md"}
+    # Only new release top-level items should remain
+    assert remaining == {
+        "src",
+        "README.md"
+    }
 
-    # Old files/dirs must be gone
-    assert not (script_dir / "BackupManager.py").exists()
+    # Old files/dirs must be removed
     assert not (script_dir / "old_helper.py").exists()
     assert not old_pkg_dir.exists()
 
-    # New files must be present with correct content
-    assert (script_dir / "src" / "BackupManager.py").read_text(encoding="utf-8") == "new script content"
-    assert (script_dir / "README.md").read_text(encoding="utf-8") == "new readme"
+    # New files must exist
+    assert (
+        script_dir / "src" / "BackupManager.py"
+    ).read_text(encoding="utf-8") == "new script content"
 
-    # Update's own working artifacts should be cleaned up afterward
+    assert (
+        script_dir / "README.md"
+    ).read_text(encoding="utf-8") == "new readme"
+
+    # Update artifacts cleaned
     assert not (script_dir / "update_temp").exists()
     assert not (script_dir / "update.zip").exists()
 
