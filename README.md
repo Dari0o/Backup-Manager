@@ -42,12 +42,6 @@ in your terminal run:
 python -m pip install -r requirements.txt
 ```
 
-or just run:
-
-```bash
-pip install tqdm prompt_toolkit requests
-```
-
 ---
 
 ## Usage
