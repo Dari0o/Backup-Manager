@@ -1,6 +1,6 @@
 [![made-with-python](https://img.shields.io/badge/Made%20with-Python-1f425f.svg)](https://www.python.org/) [![MIT license](https://img.shields.io/badge/License-MIT-blue.svg)](https://lbesson.mit-license.org/) [![Python application](https://github.com/Dari0o/Backup-Manager/actions/workflows/python-app.yml/badge.svg)](https://github.com/Dari0o/Backup-Manager/actions/workflows/python-app.yml) ![GitHub contributors](https://img.shields.io/github/contributors/Dari0o/Backup-Manager)
 
-# NAS Backup Manager
+# Backup Manager
 
 A fast and multithreaded backup tool.
 
@@ -206,9 +206,7 @@ This makes the backup very fast, especially for large folders.
 ## Planned Features
 
 - GUI version
-- ~~Exclusion filters (`.git`, `node_modules`, etc.)~~ (v1.1.0)
-- ~~Optional compression~~ (v1.1.2)
-- ~~Optional encryption~~ (v1.1.2)
+- Installer
 - Backup profiles
 
 ---
