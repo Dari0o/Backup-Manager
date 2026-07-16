@@ -568,10 +568,8 @@ def get_directories_interactive() -> Tuple[str, str]:
     
     return source_dir, target_dir
 
-
-def main(source_dir: Optional[str] = None, target_dir: Optional[str] = None) -> None:
-
-    print(fr"""
+def print_logo() -> None:
+        print(fr"""
 ██████╗  █████╗  ██████╗██╗  ██╗██╗   ██╗██████╗
 ██╔══██╗██╔══██╗██╔════╝██║ ██╔╝██║   ██║██╔══██╗
 ██████╔╝███████║██║     █████╔╝ ██║   ██║██████╔╝
@@ -587,6 +585,10 @@ def main(source_dir: Optional[str] = None, target_dir: Optional[str] = None) -> 
 ╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝
 v {VERSION}
     """)
+
+def main(source_dir: Optional[str] = None, target_dir: Optional[str] = None) -> None:
+
+    print_logo()
 
     # If directories not provided as arguments, prompt interactively
     if source_dir is None or target_dir is None:
@@ -883,22 +885,8 @@ Examples:
 
     # Interactive compression mode
     if args.compression:
-        print(fr"""
-██████╗  █████╗  ██████╗██╗  ██╗██╗   ██╗██████╗
-██╔══██╗██╔══██╗██╔════╝██║ ██╔╝██║   ██║██╔══██╗
-██████╔╝███████║██║     █████╔╝ ██║   ██║██████╔╝
-██╔══██╗██╔══██║██║     ██╔═██╗ ██║   ██║██╔═══╝
-██████╔╝██║  ██║╚██████╗██║  ██╗╚██████╔╝██║
-╚═════╝ ╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝
-
-███╗   ███╗ █████╗ ███╗   ██╗ █████╗  ██████╗ ███████╗██████╗
-████╗ ████║██╔══██╗████╗  ██║██╔══██╗██╔════╝ ██╔════╝██╔══██╗
-██╔████╔██║███████║██╔██╗ ██║███████║██║  ███╗█████╗  ██████╔╝
-██║╚██╔╝██║██╔══██║██║╚██╗██║██╔══██║██║   ██║██╔══╝  ██╔══██╗
-██║ ╚═╝ ██║██║  ██║██║ ╚████║██║  ██║╚██████╔╝███████╗██║  ██║
-╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝
-v {VERSION}
-            """)
+        
+        print_logo()
             
         # Interactive mode
         if args.source is None:
