@@ -516,47 +516,55 @@ def load_target_index_multithread(target_dir: str, desc: str) -> Tuple[Dict[str,
 # MAIN
 # ----------------------------
 def get_directories_interactive() -> Tuple[str, str]:
-    """Prompts the user interactively for source and target directories"""
-    while True:
+    try:
+        """Prompts the user interactively for source and target directories"""
         while True:
-            source_dir = prompt(
-                "Please enter the source folder: ",
-                completer=PathCompleter(
-                    expanduser=True, only_directories=True),
-                complete_while_typing=True
-            ).strip()
+            while True:
+                source_dir = prompt(
+                    "Please enter the source folder: ",
+                    completer=PathCompleter(
+                        expanduser=True, only_directories=True),
+                    complete_while_typing=True
+                ).strip()
 
-            if not source_dir:
-                log("ERROR: Enter a directory path")
-                continue
+                if not source_dir:
+                    log("ERROR: Enter a directory path")
+                    continue
 
-            if not os.path.exists(source_dir):
+                if not os.path.exists(source_dir):
 
-                log(f"ERROR: Source folder does not exist: {source_dir}")
+                    log(f"ERROR: Source folder does not exist: {source_dir}")
+                else:
+                    break
+
+            while True:
+                target_dir = prompt(
+                    "Please enter the target folder: ",
+                    completer=PathCompleter(
+                        expanduser=True, only_directories=True),
+                    complete_while_typing=True
+                ).strip()
+
+                if not target_dir:
+                    log("ERROR: Enter a directory path")
+                    continue
+
+                if not os.path.exists(target_dir):
+                    log(f"ERROR: Target folder does not exist: {target_dir}")
+                else:
+                    break
+
+            if source_dir == target_dir:
+                log("ERROR: Source and target folders cannot be the same")
             else:
                 break
-
-        while True:
-            target_dir = prompt(
-                "Please enter the target folder: ",
-                completer=PathCompleter(
-                    expanduser=True, only_directories=True),
-                complete_while_typing=True
-            ).strip()
-
-            if not target_dir:
-                log("ERROR: Enter a directory path")
-                continue
-
-            if not os.path.exists(target_dir):
-                log(f"ERROR: Target folder does not exist: {target_dir}")
-            else:
-                break
-
-        if source_dir == target_dir:
-            log("ERROR: Source and target folders cannot be the same")
-        else:
-            break
+            
+    except KeyboardInterrupt:
+        log("Aborted by user")
+        sys.exit(0)
+    except Exception as e:
+        log(f"Unexpected error: {e}")
+        sys.exit(1)
     
     return source_dir, target_dir
 
@@ -895,25 +903,7 @@ v {VERSION}
         # Interactive mode
         if args.source is None:
 
-            while True:
-                source_dir = prompt(
-                    "Please enter the source directory: ",
-                    completer=PathCompleter(
-                        expanduser=True,
-                        only_directories=True
-                    ),
-                    complete_while_typing=True
-                ).strip()
-
-                if not source_dir:
-                    print("ERROR: Please enter a path")
-                    continue
-
-                if not os.path.exists(source_dir):
-                    print(f"ERROR: Source directory does not exist: {source_dir}")
-                    continue
-
-                break
+            source_dir, target_dir = get_directories_interactive()
 
             timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
             output_zip = os.path.join(
@@ -921,17 +911,8 @@ v {VERSION}
                 f"backup_{timestamp}.zip"
             )
 
-            user_output = prompt(
-                f"Output ZIP file [{output_zip}]: ",
-                completer=PathCompleter(
-                    expanduser=True,
-                    only_directories=False
-                ),
-                complete_while_typing=True
-            ).strip()
-
-            if user_output:
-                output_zip = user_output
+            if target_dir:
+                output_zip = target_dir
 
         # CLI mode
         else:
