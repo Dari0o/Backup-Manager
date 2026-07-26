@@ -16,7 +16,7 @@ class _ArchiveEntry:
         return os.path.isfile(self.path)
 
 
-def _get_store_without_compression_extensions():
+def _get_store_without_compression_extensions() -> set[str]:
     try:
         from exclude_list import load_exclude_config
 
@@ -36,7 +36,7 @@ def _should_store_without_compression(path: str, extensions=None) -> bool:
     return os.path.splitext(path)[1].lower() in extensions
 
 
-def _collect_files_for_archiving(source_path: str, should_ignore_func=None):
+def _collect_files_for_archiving(source_path: str, should_ignore_func=None) -> list[str]:
     files_to_archive = []
 
     if os.path.isfile(source_path):
