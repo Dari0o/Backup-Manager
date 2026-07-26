@@ -38,6 +38,7 @@ log_file = os.path.join(log_dir, "backup.log")
 THREADS = 32  # min(8, max(1, os.cpu_count() // 1.5))
 VERSION = "1.1.3"  # Current version
 IGNORE_EXCLUDE_LIST = False #for -i argument
+MIRROR_MODE = False #for --mirror argument
 
 
 # ----------------------------
@@ -597,14 +598,17 @@ def main(source_dir: Optional[str] = None, target_dir: Optional[str] = None) -> 
         # Validate provided directories
         if not os.path.exists(source_dir):
             log(f"ERROR: Source folder does not exist: {source_dir}")
+            input("Press Enter to exit...")
             sys.exit(1)
         
         if not os.path.exists(target_dir):
             log(f"ERROR: Target folder does not exist: {target_dir}")
+            input("Press Enter to exit...")
             sys.exit(1)
         
         if source_dir == target_dir:
             log("ERROR: Source and target folders cannot be the same")
+            input("Press Enter to exit...")
             sys.exit(1)
 
     os.makedirs(target_dir, exist_ok=True)
@@ -624,7 +628,7 @@ def main(source_dir: Optional[str] = None, target_dir: Optional[str] = None) -> 
     )
 
     # If mirror mode: delete files in target that are not present in source
-    if globals().get('MIRROR_MODE'):
+    if MIRROR_MODE:
 
         # Build set of relative paths present in source
         source_rels = set()
@@ -645,6 +649,8 @@ def main(source_dir: Optional[str] = None, target_dir: Optional[str] = None) -> 
 
             if answer not in ("y", "yes"):
                 log("Mirror mode: deletion aborted by user")
+                input("Press Enter to exit...")
+                sys.exit(0)
             else:
                 log(f"Mirror mode: deleting {len(to_delete)} items from target")
 
@@ -823,11 +829,18 @@ Examples:
 
     # Validate argument combinations
     if args.mirror and (args.sevenzip or args.password):
-        input("ERROR: Mirror mode is not compatible with 7z encrypted backup")
+        log("ERROR: Mirror mode is not compatible with 7z encrypted backup")
+        input("Press Enter to exit...")
         sys.exit(0)
 
+    if args.mirror and IGNORE_EXCLUDE_LIST:
+       log("ERROR: Mirror mode is not compatible with the ignore-exclude-list argument") 
+       input("Press Enter to exit...")
+       sys.exit(0)
+
     if args.update and (args.sevenzip or args.password or args.source or args.target or args.mirror or args.compression or args.ignore_excludes):
-        input("ERROR: Update mode cannot be combined with other options. Press enter to exit . . .")
+        log("ERROR: Update mode cannot be combined with other options.")
+        input("Press Enter to exit...")
         sys.exit(0)
 
     # Check if compression mode is enabled
@@ -882,6 +895,8 @@ Examples:
 
         sys.exit(0)
 
+    if args.mirror:
+        MIRROR_MODE = True
 
     # Interactive compression mode
     if args.compression:

@@ -30,11 +30,8 @@ The program intelligently compares files based on size and modification date, an
 ### Requirements
 
 - Python 3.10+
-- Windows, Ubuntu, macOS
-- Network share / NAS (optional)
 - 7-Zip (required for compression and encrypted 7z archives)
 
-- In requirements.txt you will find dependencies to install to run this project
 
 in your terminal run:
 
@@ -92,7 +89,7 @@ Check for a new version:
 python BackupManager.py --update
 ```
 
-The tool automatically downloads and installs the latest GitHub release and all requirements.
+The tool then downloads and installs the latest GitHub release and all requirements.
 
 ---
 
@@ -160,7 +157,7 @@ Documents/
 └── Photo.jpg
 ```
 
-Target before backup:
+Target before Mirror-Mode backup:
 
 ```text
 Documents/
@@ -169,7 +166,7 @@ Documents/
 └── OldFile.txt
 ```
 
-Target after Mirror Mode:
+Target after Mirror-Mode:
 
 ```text
 Documents/
@@ -208,6 +205,7 @@ This makes the backup very fast, especially for large folders.
 - GUI version
 - Installer
 - Backup profiles
+- Scheduled backups
 
 ---
 

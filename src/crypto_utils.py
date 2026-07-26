@@ -30,7 +30,7 @@ def get_7z_path() -> str:
     if path:
         return path
 
-    raise FileNotFoundError("7z.exe not found. Install 7-Zip or set SEVENZIP_PATH.")
+    raise FileNotFoundError("7z.exe not found. Install 7-Zip or add the install path in /src/crypto_utils.py line 21.")
 
 
 # ----------------------------
