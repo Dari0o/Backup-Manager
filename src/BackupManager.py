@@ -35,8 +35,8 @@ def should_ignore(entry) -> bool:
 # ----------------------------
 log_dir = os.path.dirname(os.path.abspath(__file__))
 log_file = os.path.join(log_dir, "backup.log")
-THREADS = 32  # min(8, max(1, os.cpu_count() // 1.5))
-VERSION = "1.1.4"  # Current version
+THREADS = 32
+VERSION = "1.1.5"  # Current version
 IGNORE_EXCLUDE_LIST = False #for -i argument
 MIRROR_MODE = False #for --mirror argument
 
@@ -984,6 +984,7 @@ Examples:
 
             print(f"Update available: {release_info['version']}")
             print("Installing update...")
+            install_update(release_info)
 
         else:
             print("No new updates available.")
