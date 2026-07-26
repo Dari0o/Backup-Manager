@@ -234,20 +234,33 @@ def check_for_update() -> Optional[Dict[str, Any]]:
         response.raise_for_status()
         release_data = response.json()
 
-        tag = release_data.get("tag_name", "").lstrip('v')
+        tag = release_data.get("tag_name", "").lstrip("v")
 
         if not tag:
+            return None
+
+        assets = release_data.get("assets", [])
+
+        download_url = None
+
+        # Find uploaded release ZIP
+        for asset in assets:
+            if asset["name"].endswith(".zip"):
+                download_url = asset["browser_download_url"]
+                break
+
+        if not download_url:
             return None
 
         return {
             "version": tag,
             "release_name": release_data.get("name", ""),
-            "download_url": release_data.get("zipball_url", ""),
+            "download_url": download_url,
             "body": release_data.get("body", ""),
         }
 
     except Exception as e:
-        log(f"Update check error: {e}")
+        log(f"Update check failed: {e}")
         return None
 
 
