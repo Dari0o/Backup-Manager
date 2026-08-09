@@ -83,7 +83,7 @@ python BackupManager.py --update
 
 ## Update System
 
-Check for a new version:
+Install a new version:
 
 ```bash
 python BackupManager.py --update
