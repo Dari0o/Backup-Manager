@@ -4,12 +4,13 @@ import threading
 import queue
 import builtins
 import time
+import logging
 from datetime import datetime
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext
 from tkinter import ttk  # Kept only for progressbar
 
-from logger import setup_logger
+from logger import setup_logger, set_gui_log_handler
 
 logger = setup_logger(__name__)
 
@@ -23,6 +24,15 @@ except ImportError:
 
 # Thread-safe queue for UI communication
 ui_queue = queue.Queue()
+
+
+class GuiLogHandler(logging.Handler):
+    def emit(self, record):
+        try:
+            message = self.format(record) if self.formatter else record.getMessage()
+            ui_queue.put(("log", (record.levelname, message)))
+        except Exception:
+            pass
 
 class GuiTqdm:
     """Mock tqdm class that redirects progress updates to the GUI queue."""
@@ -115,7 +125,15 @@ class BackupGuiApp:
 
         self.create_widgets()
         self.update_options_states()
-        
+
+        self.gui_handler = GuiLogHandler()
+        self.gui_handler.setFormatter(logging.Formatter("%(message)s"))
+        set_gui_log_handler(self.gui_handler)
+        for logger_name in list(logging.Logger.manager.loggerDict):
+            existing_logger = logging.getLogger(logger_name)
+            if self.gui_handler not in existing_logger.handlers:
+                existing_logger.addHandler(self.gui_handler)
+
         # Start queue checking loop
         self.root.after(100, self.process_ui_queue)
 
@@ -509,23 +527,32 @@ class BackupGuiApp:
 
     def log_message(self, message, tag="info"):
         tag_to_use = tag
-        if "ERROR:" in message:
+        if isinstance(tag, str):
+            tag_to_use = tag.lower()
+        if isinstance(message, tuple):
+            tag_to_use, message = message
+            tag_to_use = str(tag_to_use).lower()
+
+        if tag_to_use in {"error", "critical"}:
             tag_to_use = "error"
-            logger.error(message)
-        elif "WARNING:" in message:
+        elif tag_to_use in {"warning", "warn"}:
             tag_to_use = "warning"
-            logger.warning(message)
-        elif "success" in message.lower() or "completed" in message.lower() or "finished" in message.lower():
-            tag_to_use = "success"
-            logger.info(message)
-        elif message.startswith("==="):
+        elif tag_to_use in {"success", "info"}:
+            tag_to_use = "success" if "success" in str(message).lower() or "completed" in str(message).lower() or "finished" in str(message).lower() else "info"
+        elif str(message).startswith("==="):
             tag_to_use = "header"
-            logger.info(message)
-        else:
-            logger.info(message)
+
+        if "ERROR:" in str(message):
+            tag_to_use = "error"
+        elif "WARNING:" in str(message):
+            tag_to_use = "warning"
+        elif "success" in str(message).lower() or "completed" in str(message).lower() or "finished" in str(message).lower():
+            tag_to_use = "success"
+        elif str(message).startswith("==="):
+            tag_to_use = "header"
 
         self.console.config(state="normal")
-        self.console.insert(tk.END, message + "\n", tag_to_use)
+        self.console.insert(tk.END, str(message) + "\n", tag_to_use)
         self.console.config(state="disabled")
         self.console.see(tk.END)
 
@@ -576,7 +603,7 @@ class BackupGuiApp:
                 ui_queue.put(("log", f"ERROR: Update check failed: {e}"))
                 ui_queue.put(("update_done", {}))
 
-        threading.Thread(target=task, daemon=True).start()
+        threading.Thread(target=task, daemon=False).start()
 
     def start_backup_process(self):
         source = self.source_var.get().strip()
@@ -632,7 +659,7 @@ class BackupGuiApp:
         builtins.input = gui_input
 
         # Start backup thread
-        threading.Thread(target=self.backup_worker, args=(source, target), daemon=True).start()
+        threading.Thread(target=self.backup_worker, args=(source, target), daemon=False).start()
 
     def backup_worker(self, source, target):
         success = False
@@ -650,17 +677,15 @@ class BackupGuiApp:
                 if parent:
                     os.makedirs(parent, exist_ok=True)
                 
+                ui_queue.put(("progress_init", {"total": 0, "desc": "7z Encrypting", "indeterminate": True}))
                 success = crypto_utils.encrypt_directory_7z(
                     source_dir=source,
                     output_file=target,
                     password=self.password_var.get(),
-                    log_func=lambda msg: ui_queue.put(("log", msg))
+                    log_func=lambda msg: ui_queue.put(("log", msg)),
+                    progress_callback=lambda percent: ui_queue.put(("progress_update", {"percent": percent}))
                 )
-                
-                if success:
-                    ui_queue.put(("log", f"Backup completed successfully: {target}"))
-                else:
-                    ui_queue.put(("log", "ERROR: Backup failed"))
+                ui_queue.put(("progress_close", {}))
                     
             # ZIP Compression path
             elif self.zip_var.get():
@@ -671,29 +696,47 @@ class BackupGuiApp:
                 if not compress_to_zip:
                     ui_queue.put(("log", "ERROR: compression.py could not be loaded"))
                 else:
+                    ui_queue.put(("progress_init", {"total": 0, "desc": "7z Compressing", "indeterminate": True}))
+
                     # Make parent folder if file path
                     if target.lower().endswith(".zip"):
                         parent = os.path.dirname(target)
                         if parent:
                             os.makedirs(parent, exist_ok=True)
-                            
+
                     success = compress_to_zip(
                         source,
                         target,
                         compression_level=self.zip_level_var.get(),
                         log_func=lambda msg: ui_queue.put(("log", msg)),
                         should_ignore_func=BackupManager.should_ignore,
-                        num_threads=BackupManager.THREADS
+                        num_threads=BackupManager.THREADS,
+                        progress_callback=lambda percent: ui_queue.put(("progress_update", {"percent": percent}))
                     )
+                    ui_queue.put(("progress_close", {}))
             
             # Normal Backup path
             else:
-                # Run main logic
-                BackupManager.main(source_dir=source, target_dir=target)
-                success = True
+                try:
+                    # Run main logic without letting CLI exit calls terminate the GUI app.
+                    BackupManager.main(source_dir=source, target_dir=target)
+                    success = True
+                except SystemExit as e:
+                    ui_queue.put(("log", f"WARNING: GUI backup task was interrupted by a system exit: {e}"))
+                    success = False
+                except KeyboardInterrupt:
+                    ui_queue.put(("log", "WARNING: GUI backup task was interrupted by user input."))
+                    success = False
                 
+        except SystemExit as e:
+            ui_queue.put(("log", f"WARNING: GUI backup task ended via SystemExit: {e}"))
+            success = False
+        except KeyboardInterrupt:
+            ui_queue.put(("log", "WARNING: GUI backup task was interrupted by user input."))
+            success = False
         except Exception as e:
             ui_queue.put(("log", f"ERROR: Unexpected thread failure: {e}"))
+            success = False
             
         finally:
             elapsed = time.time() - start_time
@@ -707,7 +750,11 @@ class BackupGuiApp:
                 event_type, data = ui_queue.get_nowait()
                 
                 if event_type == "log":
-                    self.log_message(data)
+                    if isinstance(data, tuple):
+                        level_name, message = data
+                        self.log_message(message, level_name)
+                    else:
+                        self.log_message(data)
                     
                 elif event_type == "prompt":
                     # Prompt handling: prompt_text, response_queue
@@ -725,23 +772,31 @@ class BackupGuiApp:
                     self.progress_max = data.get("total") or 0
                     self.progress_current = 0
                     self.lbl_status.config(text=data.get("desc") or "Processing...", fg=self.fg_color)
-                    
-                    if self.progress_max > 0:
+
+                    if data.get("indeterminate") or self.progress_max <= 0:
+                        self.progress_bar.stop()
+                        self.progress_bar["mode"] = "indeterminate"
+                        self.progress_bar.start(10)
+                    else:
+                        self.progress_bar.stop()
                         self.progress_bar["mode"] = "determinate"
                         self.progress_bar["maximum"] = self.progress_max
                         self.progress_bar["value"] = 0
-                    else:
-                        self.progress_bar["mode"] = "indeterminate"
-                        self.progress_bar.start(10)
                         
                 elif event_type == "progress_update":
-                    n = data.get("n") or 1
-                    self.progress_current += n
+                    if "percent" in data:
+                        self.progress_max = 100
+                        self.progress_bar.stop()
+                        self.progress_bar["mode"] = "determinate"
+                        self.progress_bar["maximum"] = 100
+                        self.progress_current = max(0, min(int(data["percent"]), 100))
+                    else:
+                        n = data.get("n") or 1
+                        self.progress_current += n
                     
                     if self.progress_max > 0:
                         self.progress_bar["value"] = self.progress_current
                         percentage = (self.progress_current / self.progress_max) * 100
-                        # Check units to format text nicely
                         if self.progress_max > 1024 * 1024:
                             curr_mb = self.progress_current / (1024 * 1024)
                             total_mb = self.progress_max / (1024 * 1024)
@@ -750,12 +805,11 @@ class BackupGuiApp:
                             self.lbl_percent.config(text=f"{self.progress_current} / {self.progress_max} ({percentage:.1f}%)")
                         else:
                             self.lbl_percent.config(text=f"{percentage:.1f}%")
-                            
+                             
                 elif event_type == "progress_close":
                     self.progress_bar.stop()
                     self.progress_bar["mode"] = "determinate"
-                    self.progress_bar["value"] = self.progress_bar["maximum"]
-                    self.lbl_percent.config(text="")
+                    self.progress_bar["maximum"] = max(100, self.progress_bar["maximum"])
                     
                 elif event_type == "backup_done":
                     self.is_running = False
@@ -788,7 +842,7 @@ class BackupGuiApp:
                             success = BackupManager.install_update(release_info)
                             ui_queue.put(("update_done", success))
                         
-                        threading.Thread(target=update_task, daemon=True).start()
+                        threading.Thread(target=update_task, daemon=False).start()
                     else:
                         self.lbl_status.config(text="Ready", fg=self.fg_color)
                         

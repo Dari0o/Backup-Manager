@@ -1,4 +1,5 @@
 import os
+import re
 import subprocess
 import tempfile
 from datetime import datetime
@@ -64,7 +65,7 @@ def _write_file_list(file_list_path: str, paths: list[str], base_dir: str) -> No
             handle.write(rel_path + "\n")
 
 
-def compress_to_zip(source_path: str, output_zip: str, compression_level: int = 3, log_func=None, should_ignore_func=None, num_threads: int = 1) -> bool:
+def compress_to_zip(source_path: str, output_zip: str, compression_level: int = 3, log_func=None, should_ignore_func=None, num_threads: int = 1, progress_callback=None) -> bool:
     """
     Compresses a directory or file into a ZIP archive using 7-Zip.
 
@@ -134,7 +135,34 @@ def compress_to_zip(source_path: str, output_zip: str, compression_level: int = 
                     output_zip,
                     "@" + list_path,
                 ]
-                subprocess.run(command, check=True, cwd=archive_root)
+                if progress_callback is None:
+                    subprocess.run(command, check=True, cwd=archive_root)
+                    return
+
+                process = subprocess.Popen(
+                    command,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    cwd=archive_root,
+                    bufsize=1,
+                )
+
+                last_percent = None
+                for line in process.stdout or []:
+                    if log_func is not None:
+                        log_func(line.strip())
+
+                    match = re.search(r"(\d{1,3})%", line)
+                    if match:
+                        percent = int(match.group(1))
+                        if last_percent is None or percent > last_percent:
+                            progress_callback(percent)
+                            last_percent = percent
+
+                return_code = process.wait()
+                if return_code != 0:
+                    raise subprocess.CalledProcessError(return_code, command)
             finally:
                 if os.path.exists(list_path):
                     os.remove(list_path)

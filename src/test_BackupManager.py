@@ -62,6 +62,24 @@ def test_should_ignore_flag_false():
     assert isinstance(bm.should_ignore(MagicMock()), bool)
 
 
+def test_git_folder_is_ignored_by_default():
+    import exclude_list
+
+    class FakeEntry:
+        def __init__(self, name, is_dir):
+            self.name = name
+            self._is_dir = is_dir
+
+        def is_dir(self, follow_symlinks=False):
+            return self._is_dir
+
+        def is_file(self, follow_symlinks=False):
+            return not self._is_dir
+
+    assert exclude_list.should_ignore_path(FakeEntry(".git", True)) is True
+    assert exclude_list.should_ignore_path(FakeEntry(".gitignore", False)) is False
+
+
 # ----------------------------
 # logging setup
 # ----------------------------
@@ -182,6 +200,35 @@ def test_compress_to_zip_stores_wav_without_compression(tmp_path):
     commands = [call.args[0] for call in mock_run.call_args_list]
     assert commands[0][3] == "-mx=1"
     assert commands[1][3] == "-mx=0"
+
+
+def test_compress_to_zip_reports_real_7z_percentages(tmp_path):
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "file.txt").write_text("hello", encoding="utf-8")
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+
+    class FakeProcess:
+        def __init__(self):
+            self.stdout = iter([" 10% done\n", " 45% done\n", " 100% done\n"])
+            self.returncode = 0
+
+        def wait(self):
+            return 0
+
+    seen = []
+    with patch("compression.subprocess.Popen", return_value=FakeProcess()):
+        result = compression_module.compress_to_zip(
+            str(source_dir),
+            str(output_dir),
+            compression_level=1,
+            log_func=lambda _: None,
+            progress_callback=seen.append,
+        )
+
+    assert result is True
+    assert seen == [10, 45, 100]
 
 
 def _build_fake_release_zip(root_folder_name: str, files: dict) -> bytes:

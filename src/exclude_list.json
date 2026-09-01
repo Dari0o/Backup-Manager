@@ -9,7 +9,8 @@
     "ignored_file_names": [
         "Thumbs.db",
         ".DS_Store",
-        "desktop.ini"
+        "desktop.ini",
+        "index.dat"
     ],
     "ignored_extensions": [
         ".tmp",

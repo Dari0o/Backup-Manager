@@ -354,7 +354,7 @@ def install_update(release_info: Dict[str, Any]) -> bool:
                     shutil.copy2(src, dst)
 
             except OSError as e:
-                logger.error(f"Error copying {src} to {dst}: {e}")
+                logger.warning(f"Skipping update file due to copy error: {src} -> {dst}: {e}")
 
         # Cleanup
         shutil.rmtree(extract_dir, ignore_errors=True)
@@ -369,7 +369,8 @@ def install_update(release_info: Dict[str, Any]) -> bool:
         logger.error(f"Update installation error: {e}")
         return False
 
-def copy_file(src: str, dst_base: str, src_base: str, progress: Any) -> None:
+def copy_file(src: str, dst_base: str, src_base: str, progress: Any) -> bool:
+    """Copy a single file. Locked/inaccessible files are skipped without aborting the backup."""
 
     rel = os.path.relpath(src, src_base)
     dst = os.path.join(dst_base, rel)
@@ -378,9 +379,16 @@ def copy_file(src: str, dst_base: str, src_base: str, progress: Any) -> None:
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         shutil.copy2(src, dst)
         progress.update(os.path.getsize(src))
+        return True
+
+    except (OSError, IOError, PermissionError, shutil.Error) as e:
+        # Never abort the whole backup because one file is locked or inaccessible.
+        logger.warning(f"Skipping file due to copy error: {src} -> {dst}: {e}")
+        return False
 
     except Exception as e:
-        logger.error(f"Error copying {src} to {dst}: {e}")
+        logger.warning(f"Skipping file due to unexpected copy error: {src} -> {dst}: {e}")
+        return False
 
 
 # ----------------------------
@@ -725,6 +733,7 @@ def main(source_dir: Optional[str] = None, target_dir: Optional[str] = None) -> 
     if len(files_to_copy) > 0:
 
         logger.info("Copy process started")
+        skipped_files = 0
 
         with tqdm_.tqdm(
             total=copy_size,
@@ -752,9 +761,13 @@ def main(source_dir: Optional[str] = None, target_dir: Optional[str] = None) -> 
                     )
 
                 for f in as_completed(futures):
-                    f.result()
+                    if not f.result():
+                        skipped_files += 1
 
-        logger.info("Copy process completed")
+        if skipped_files:
+            logger.warning(f"Copy process completed with {skipped_files} skipped file(s) due to access errors")
+        else:
+            logger.info("Copy process completed")
 
     else:
 

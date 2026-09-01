@@ -4,6 +4,7 @@ from pathlib import Path
 
 LOG_DIR = Path(__file__).resolve().parent
 LOG_FILE = LOG_DIR / "backup_manager.log"
+GUI_LOG_HANDLER = None
 
 
 def _build_formatter() -> logging.Formatter:
@@ -11,6 +12,11 @@ def _build_formatter() -> logging.Formatter:
         "[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
+
+
+def set_gui_log_handler(handler: logging.Handler | None) -> None:
+    global GUI_LOG_HANDLER
+    GUI_LOG_HANDLER = handler
 
 
 def setup_logger(name: str = "backup_manager", level: int = logging.DEBUG) -> logging.Logger:
@@ -21,22 +27,24 @@ def setup_logger(name: str = "backup_manager", level: int = logging.DEBUG) -> lo
     logger.setLevel(level)
     logger.propagate = False
 
-    if logger.handlers:
-        return logger
+    if not logger.handlers:
+        file_handler = RotatingFileHandler(
+            log_path,
+            maxBytes=5 * 1024 * 1024,
+            backupCount=3,
+            encoding="utf-8",
+        )
+        file_handler.setFormatter(_build_formatter())
 
-    file_handler = RotatingFileHandler(
-        log_path,
-        maxBytes=5 * 1024 * 1024,
-        backupCount=3,
-        encoding="utf-8",
-    )
-    file_handler.setFormatter(_build_formatter())
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(_build_formatter())
 
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(_build_formatter())
+        logger.addHandler(file_handler)
+        logger.addHandler(console_handler)
 
-    logger.addHandler(file_handler)
-    logger.addHandler(console_handler)
+    if GUI_LOG_HANDLER is not None and GUI_LOG_HANDLER not in logger.handlers:
+        logger.addHandler(GUI_LOG_HANDLER)
+
     return logger
 
 

@@ -1,7 +1,10 @@
 import json
 import os
 from typing import Any, Dict, List
-from BackupManager import log as logger
+
+from logger import setup_logger
+
+logger = setup_logger(__name__)
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.join(SCRIPT_DIR, "exclude_list.json")
@@ -18,6 +21,7 @@ DEFAULT_CONFIG: Dict[str, List[str]] = {
         "Thumbs.db",
         ".DS_Store",
         "desktop.ini",
+        "index.dat",
     ],
     "ignored_extensions": [
         ".tmp",
@@ -67,7 +71,7 @@ def _write_default_config() -> None:
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(DEFAULT_CONFIG, f, indent=4, ensure_ascii=False)
     except OSError:
-        logger("Error writing default config file")
+        logger.error("Error writing default config file")
 
 
 def load_exclude_config() -> Dict[str, List[str]]:
@@ -121,7 +125,7 @@ def should_ignore_path(entry) -> bool:
             return is_ignored_name(entry.name, is_dir=False)
 
     except (PermissionError, OSError):
-        logger(f"Error accessing path: {entry.path}")
+        logger.warning(f"Error accessing path: {entry.path}")
         return True
 
     return False

@@ -60,7 +60,8 @@ def encrypt_directory_7z(
     source_dir: str,
     output_file: str,
     password: str,
-    log_func=None
+    log_func=None,
+    progress_callback=None
 ) -> bool:
 
     if log_func is None:
@@ -107,6 +108,11 @@ def encrypt_directory_7z(
             except Exception:
                 pass
 
+            if progress_callback is not None:
+                match = re.search(r"(\d{1,3})%", line)
+                if match:
+                    progress_callback(int(match.group(1)))
+
         process.wait()
         progress.close()
 
@@ -132,7 +138,8 @@ def extract_7z(
     archive_file: str,
     output_dir: str,
     password: str,
-    log_func=None
+    log_func=None,
+    progress_callback=None
 ) -> bool:
 
     if log_func is None:
@@ -178,6 +185,11 @@ def extract_7z(
                 last = _parse_progress(line, last, progress)
             except Exception:
                 pass
+
+            if progress_callback is not None:
+                match = re.search(r"(\d{1,3})%", line)
+                if match:
+                    progress_callback(int(match.group(1)))
 
         process.wait()
         progress.close()
