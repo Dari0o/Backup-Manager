@@ -9,6 +9,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext
 from tkinter import ttk  # Kept only for progressbar
 
+from logger import setup_logger
+
+logger = setup_logger(__name__)
+
 # Import core modules
 import BackupManager
 import crypto_utils
@@ -504,19 +508,23 @@ class BackupGuiApp:
             self.chk_ignore.config(state="normal", fg=self.fg_color)
 
     def log_message(self, message, tag="info"):
-        self.console.config(state="normal")
-        
-        # Check if line contains tags
         tag_to_use = tag
         if "ERROR:" in message:
             tag_to_use = "error"
+            logger.error(message)
         elif "WARNING:" in message:
             tag_to_use = "warning"
+            logger.warning(message)
         elif "success" in message.lower() or "completed" in message.lower() or "finished" in message.lower():
             tag_to_use = "success"
+            logger.info(message)
         elif message.startswith("==="):
             tag_to_use = "header"
+            logger.info(message)
+        else:
+            logger.info(message)
 
+        self.console.config(state="normal")
         self.console.insert(tk.END, message + "\n", tag_to_use)
         self.console.config(state="disabled")
         self.console.see(tk.END)
@@ -613,7 +621,7 @@ class BackupGuiApp:
         BackupManager.MIRROR_MODE = self.mirror_var.get()
 
         # Intercept output
-        BackupManager.log = lambda msg: ui_queue.put(("log", msg))
+        BackupManager.log = logger.info
         
         # Thread-safe prompt interceptor using queue
         def gui_input(prompt_text):

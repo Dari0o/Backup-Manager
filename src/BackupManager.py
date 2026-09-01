@@ -23,6 +23,14 @@ try:
 except ImportError:
     compress_to_zip = None
 
+from logger import setup_logger
+
+logger = setup_logger(__name__)
+
+
+def log(message: str) -> None:
+    logger.info(message)
+
 
 def should_ignore(entry) -> bool:
     if IGNORE_EXCLUDE_LIST:
@@ -33,27 +41,10 @@ def should_ignore(entry) -> bool:
 # ----------------------------
 # Global Variables
 # ----------------------------
-log_dir = os.path.dirname(os.path.abspath(__file__))
-log_file = os.path.join(log_dir, "backup.log")
 THREADS = 32
 VERSION = "1.1.5"  # Current version
 IGNORE_EXCLUDE_LIST = False #for -i argument
 MIRROR_MODE = False #for --mirror argument
-
-
-# ----------------------------
-# Logging
-# ----------------------------
-def log(message: str) -> None:
-    time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    entry = f"[{time}] {message}"
-    print(entry)
-
-    os.makedirs(log_dir, exist_ok=True)
-
-    with open(log_file, "a", encoding="utf-8") as f:
-        f.write(entry + "\n")
-
 
 # ----------------------------
 # Update Management
@@ -180,7 +171,7 @@ def _run_command(command: List[str], env: Optional[Dict[str, str]] = None) -> bo
         subprocess.run(command, check=True, env=env)
         return True
     except (subprocess.CalledProcessError, FileNotFoundError) as exc:
-        log(f"Dependency installation failed for {' '.join(command)}: {exc}")
+        logger.error(f"Dependency installation failed for {' '.join(command)}: {exc}")
         return False
 
 
@@ -191,14 +182,14 @@ def _python_module_available(module_name: str) -> bool:
 def ensure_dependencies() -> bool:
     """Installs missing system and Python dependencies needed by BackupManager."""
     env_info = detect_environment()
-    log(f"Detected environment: {env_info.get('os', 'unknown')} / {env_info.get('distro', 'unknown')}")
+    logger.info(f"Detected environment: {env_info.get('os', 'unknown')} / {env_info.get('distro', 'unknown')}")
 
     seven_zip_available = shutil.which("7z") is not None or os.path.exists(r"C:\Program Files\7-Zip\7z.exe")
     required_modules = ["prompt_toolkit", "tqdm", "requests"]
     missing_modules = [module for module in required_modules if not _python_module_available(module)]
 
     if seven_zip_available and not missing_modules:
-        log("All dependencies already available")
+        logger.info("All dependencies already available")
         return True
 
     commands = get_dependency_install_commands(env_info)
@@ -260,7 +251,7 @@ def check_for_update() -> Optional[Dict[str, Any]]:
         }
 
     except Exception as e:
-        log(f"Update check failed: {e}")
+        logger.error(f"Update check failed: {e}")
         return None
 
 
@@ -275,7 +266,7 @@ def install_update(release_info: Dict[str, Any]) -> bool:
         import requests
         import zipfile
 
-        log(f"Installing update {release_info['version']}...")
+        logger.info(f"Installing update {release_info['version']}...")
 
         # Project root directory (one level above src/)
         current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -313,7 +304,7 @@ def install_update(release_info: Dict[str, Any]) -> bool:
         extracted_contents = os.listdir(extract_dir)
 
         if not extracted_contents:
-            log("Error: ZIP file is empty")
+            logger.error("Error: ZIP file is empty")
             shutil.rmtree(extract_dir, ignore_errors=True)
             os.remove(zip_path)
             return False
@@ -348,7 +339,7 @@ def install_update(release_info: Dict[str, Any]) -> bool:
                     os.remove(old_path)
 
             except OSError as e:
-                log(f"Error removing old file {old_path}: {e}")
+                logger.error(f"Error removing old file {old_path}: {e}")
 
         # Copy new release files
         for item in os.listdir(source_dir):
@@ -363,7 +354,7 @@ def install_update(release_info: Dict[str, Any]) -> bool:
                     shutil.copy2(src, dst)
 
             except OSError as e:
-                log(f"Error copying {src} to {dst}: {e}")
+                logger.error(f"Error copying {src} to {dst}: {e}")
 
         # Cleanup
         shutil.rmtree(extract_dir, ignore_errors=True)
@@ -371,11 +362,11 @@ def install_update(release_info: Dict[str, Any]) -> bool:
         if os.path.exists(zip_path):
             os.remove(zip_path)
 
-        log("Update installed successfully")
+        logger.info("Update installed successfully")
         return True
 
     except Exception as e:
-        log(f"Update installation error: {e}")
+        logger.error(f"Update installation error: {e}")
         return False
 
 def copy_file(src: str, dst_base: str, src_base: str, progress: Any) -> None:
@@ -389,7 +380,7 @@ def copy_file(src: str, dst_base: str, src_base: str, progress: Any) -> None:
         progress.update(os.path.getsize(src))
 
     except Exception as e:
-        log(f"Error copying {src} to {dst}: {e}")
+        logger.error(f"Error copying {src} to {dst}: {e}")
 
 
 # ----------------------------
@@ -421,7 +412,7 @@ def stat_file(path: str) -> Optional[Tuple[str, int, float]]:
         return (path, stat.st_size, stat.st_mtime)
 
     except Exception:
-        log(f"Error accessing file: {path}")
+        logger.error(f"Error accessing file: {path}")
         return None
 
 
@@ -542,12 +533,12 @@ def get_directories_interactive() -> Tuple[str, str]:
                 ).strip()
 
                 if not source_dir:
-                    log("ERROR: Enter a directory path")
+                    logger.error("ERROR: Enter a directory path")
                     continue
 
                 if not os.path.exists(source_dir):
 
-                    log(f"ERROR: Source folder does not exist: {source_dir}")
+                    logger.error(f"ERROR: Source folder does not exist: {source_dir}")
                 else:
                     break
 
@@ -560,24 +551,24 @@ def get_directories_interactive() -> Tuple[str, str]:
                 ).strip()
 
                 if not target_dir:
-                    log("ERROR: Enter a directory path")
+                    logger.error("ERROR: Enter a directory path")
                     continue
 
                 if not os.path.exists(target_dir):
-                    log(f"ERROR: Target folder does not exist: {target_dir}")
+                    logger.error(f"ERROR: Target folder does not exist: {target_dir}")
                 else:
                     break
 
             if source_dir == target_dir:
-                log("ERROR: Source and target folders cannot be the same")
+                logger.error("ERROR: Source and target folders cannot be the same")
             else:
                 break
             
     except KeyboardInterrupt:
-        log("Aborted by user")
+        logger.info("Aborted by user")
         sys.exit(0)
     except Exception as e:
-        log(f"Unexpected error: {e}")
+        logger.error(f"Unexpected error: {e}")
         sys.exit(1)
     
     return source_dir, target_dir
@@ -610,31 +601,31 @@ def main(source_dir: Optional[str] = None, target_dir: Optional[str] = None) -> 
     else:
         # Validate provided directories
         if not os.path.exists(source_dir):
-            log(f"ERROR: Source folder does not exist: {source_dir}")
+            logger.error(f"ERROR: Source folder does not exist: {source_dir}")
             input("Press Enter to exit...")
             sys.exit(1)
         
         if not os.path.exists(target_dir):
-            log(f"ERROR: Target folder does not exist: {target_dir}")
+            logger.error(f"ERROR: Target folder does not exist: {target_dir}")
             input("Press Enter to exit...")
             sys.exit(1)
         
         if source_dir == target_dir:
-            log("ERROR: Source and target folders cannot be the same")
+            logger.error("ERROR: Source and target folders cannot be the same")
             input("Press Enter to exit...")
             sys.exit(1)
 
     os.makedirs(target_dir, exist_ok=True)
 
-    log(f"Target folder set: {target_dir}")
-    log("=== Script started ===")
+    logger.info(f"Target folder set: {target_dir}")
+    logger.info("=== Script started ===")
 
     source_files, source_size = scan_files_multithread(
         source_dir, "Scanning Source"
     )
 
-    log(f"Files found in source: {len(source_files)}")
-    log("Please wait, scanning target directory...")
+    logger.info(f"Files found in source: {len(source_files)}")
+    logger.info("Please wait, scanning target directory...")
 
     target_index, target_size = load_target_index_multithread(
         target_dir, "Scanning Target"
@@ -657,15 +648,15 @@ def main(source_dir: Optional[str] = None, target_dir: Optional[str] = None) -> 
                 answer = input(
                     f"Mirror mode: delete {len(to_delete)} items from target? (y/N): ").strip().lower()
             except KeyboardInterrupt:
-                log("Mirror mode: deletion aborted by user")
+                logger.info("Mirror mode: deletion aborted by user")
                 answer = "n"
 
             if answer not in ("y", "yes"):
-                log("Mirror mode: deletion aborted by user")
+                logger.info("Mirror mode: deletion aborted by user")
                 input("Press Enter to exit...")
                 sys.exit(0)
             else:
-                log(f"Mirror mode: deleting {len(to_delete)} items from target")
+                logger.info(f"Mirror mode: deleting {len(to_delete)} items from target")
 
                 deleted = 0
                 with tqdm_.tqdm(total=len(to_delete), desc="Deleting", unit="items") as del_pbar:
@@ -675,13 +666,13 @@ def main(source_dir: Optional[str] = None, target_dir: Optional[str] = None) -> 
                             if os.path.isfile(target_path) or os.path.islink(target_path):
                                 os.remove(target_path)
                                 deleted += 1
-                                log(f"Deleted: {target_path}")
+                                logger.info(f"Deleted: {target_path}")
                             elif os.path.isdir(target_path):
                                 shutil.rmtree(target_path)
                                 deleted += 1
-                                log(f"Deleted dir: {target_path}")
+                                logger.info(f"Deleted dir: {target_path}")
                         except Exception as e:
-                            log(f"Error deleting {target_path}: {e}")
+                            logger.error(f"Error deleting {target_path}: {e}")
                         finally:
                             del_pbar.update(1)
 
@@ -693,7 +684,7 @@ def main(source_dir: Optional[str] = None, target_dir: Optional[str] = None) -> 
                     except Exception:
                         pass
 
-                log(f"Mirror mode: deleted {deleted} items")
+                logger.info(f"Mirror mode: deleted {deleted} items")
 
     files_to_copy = []
 
@@ -728,12 +719,12 @@ def main(source_dir: Optional[str] = None, target_dir: Optional[str] = None) -> 
 
             pbar.update(size)
 
-    log(f"New files: {new_files}")
-    log(f"Replacing existing files: {replace_files}")
+    logger.info(f"New files: {new_files}")
+    logger.info(f"Replacing existing files: {replace_files}")
 
     if len(files_to_copy) > 0:
 
-        log("Copy process started")
+        logger.info("Copy process started")
 
         with tqdm_.tqdm(
             total=copy_size,
@@ -763,13 +754,13 @@ def main(source_dir: Optional[str] = None, target_dir: Optional[str] = None) -> 
                 for f in as_completed(futures):
                     f.result()
 
-        log("Copy process completed")
+        logger.info("Copy process completed")
 
     else:
 
-        log("No files need to be copied")
+        logger.info("No files need to be copied")
 
-    log("=== Script finished ===")
+    logger.info("=== Script finished ===")
 
 
 if __name__ == "__main__":
@@ -851,7 +842,7 @@ Examples:
             BackupGui.start_gui(args)
             sys.exit(0)
         except Exception as e:
-            log(f"ERROR: Failed to start GUI: {e}")
+            logger.error(f"ERROR: Failed to start GUI: {e}")
             sys.exit(1)
     # ==========================================
     
@@ -860,17 +851,17 @@ Examples:
 
     # Validate argument combinations
     if args.mirror and (args.sevenzip or args.password):
-        log("ERROR: Mirror mode is not compatible with 7z encrypted backup")
+        logger.error("ERROR: Mirror mode is not compatible with 7z encrypted backup")
         input("Press Enter to exit...")
         sys.exit(0)
 
     if args.mirror and IGNORE_EXCLUDE_LIST:
-       log("ERROR: Mirror mode is not compatible with the ignore-exclude-list argument") 
+       logger.error("ERROR: Mirror mode is not compatible with the ignore-exclude-list argument")
        input("Press Enter to exit...")
        sys.exit(0)
 
     if args.update and (args.sevenzip or args.password or args.source or args.target or args.mirror or args.compression or args.ignore_excludes):
-        log("ERROR: Update mode cannot be combined with other options.")
+        logger.error("ERROR: Update mode cannot be combined with other options.")
         input("Press Enter to exit...")
         sys.exit(0)
 
@@ -886,18 +877,18 @@ Examples:
             sys.exit(0)
         
     if args.sevenzip:
-        log("Initializing 7z encrypted backup...")
+        logger.info("Initializing 7z encrypted backup...")
 
         if not args.password:
-            log("ERROR: --password is required")
+            logger.warning("WARNING: --password is required")
             sys.exit(1)
 
         if not args.source:
-            log("ERROR: --source is required")
+            logger.warning("WARNING: --source is required")
             sys.exit(1)
 
         if not args.target:
-            log("ERROR: --target is required")
+            logger.warning("WARNING: --target is required")
             sys.exit(1)
 
         # target is folder → not file
@@ -916,13 +907,13 @@ Examples:
             source_dir=args.source,
             output_file=output_file,
             password=args.password,
-            log_func=log
+            log_func=logger.info
         )
 
         if success:
-            log(f"Backup completed: {output_file}")
+            logger.info(f"Backup completed: {output_file}")
         else:
-            log("Backup failed")
+            logger.error("Backup failed")
 
         sys.exit(0)
 
@@ -968,17 +959,17 @@ Examples:
         
         # Start compression
         try:
-            compress_to_zip(source_dir, output_zip, compression_level, log_func=log, should_ignore_func=should_ignore, num_threads=THREADS)
+            compress_to_zip(source_dir, output_zip, compression_level, log_func=logger.info, should_ignore_func=should_ignore, num_threads=THREADS)
         except KeyboardInterrupt:
-            log("Compression aborted by user")
+            logger.info("Compression aborted by user")
             if os.path.exists(output_zip):
                 try:
                     os.remove(output_zip)
-                    log(f"Incomplete ZIP file deleted: {output_zip}")
+                    logger.info(f"Incomplete ZIP file deleted: {output_zip}")
                 except:
                     pass
         except Exception as e:
-            log(f"Compression error: {e}")
+            logger.error(f"Compression error: {e}")
             sys.exit(1)
         
         sys.exit(0)
@@ -1027,11 +1018,11 @@ Examples:
 
         except KeyboardInterrupt:
 
-            log("Aborted by user")
+            logger.info("Aborted by user")
 
         except Exception as e:
 
-            log(f"Unexpected error: {e}")
+            logger.error(f"Unexpected error: {e}")
 
         input("Press Enter to exit...")
         sys.exit(0)

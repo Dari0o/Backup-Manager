@@ -4,6 +4,10 @@ import shutil
 import re
 import tqdm
 
+from logger import setup_logger
+
+logger = setup_logger(__name__)
+
 
 # ----------------------------
 # 7z PATH RESOLUTION
@@ -56,8 +60,11 @@ def encrypt_directory_7z(
     source_dir: str,
     output_file: str,
     password: str,
-    log_func=print
+    log_func=None
 ) -> bool:
+
+    if log_func is None:
+        log_func = logger.info
 
     try:
         if not os.path.exists(source_dir):
@@ -125,8 +132,11 @@ def extract_7z(
     archive_file: str,
     output_dir: str,
     password: str,
-    log_func=print
+    log_func=None
 ) -> bool:
+
+    if log_func is None:
+        log_func = logger.info
 
     try:
         if not os.path.exists(archive_file):

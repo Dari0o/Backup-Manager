@@ -63,16 +63,18 @@ def test_should_ignore_flag_false():
 
 
 # ----------------------------
-# log (fully mocked)
+# logging setup
 # ----------------------------
 
-@patch("builtins.open", new_callable=MagicMock)
-@patch("os.makedirs", new_callable=MagicMock)
-def test_log_function(mock_mkdir, mock_open):
-    bm.log("test message")
+def test_logger_creates_file_in_src_directory():
+    import logger as logger_module
+    from pathlib import Path
 
-    mock_mkdir.assert_called_once()
-    mock_open.assert_called_once()
+    logger = logger_module.setup_logger("BackupManager_test")
+    logger.info("test message")
+
+    assert Path(logger_module.LOG_FILE).exists()
+    assert Path(logger_module.LOG_FILE).parent == Path(__file__).resolve().parent
 
 
 # ----------------------------
@@ -371,4 +373,4 @@ def test_gui_options_exclusivity():
         assert app.ignore_excludes_var.get() is False
         
     finally:
-        root.destroy()
+        root.destroy()

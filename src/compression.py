@@ -3,6 +3,10 @@ import subprocess
 import tempfile
 from datetime import datetime
 
+from logger import setup_logger
+
+logger = setup_logger(__name__)
+
 
 class _ArchiveEntry:
     def __init__(self, path: str, name: str):
@@ -77,30 +81,30 @@ def compress_to_zip(source_path: str, output_zip: str, compression_level: int = 
     """
 
     if not log_func:
-        log_func = print
+        log_func = logger.info
 
     if not should_ignore_func:
         should_ignore_func = lambda x: False
 
     try:
         if not os.path.exists(source_path):
-            log_func(f"ERROR: Source path does not exist: {source_path}")
+            logger.error(f"ERROR: Source path does not exist: {source_path}")
             return False
 
         if compression_level < 0 or compression_level > 9:
-            log_func(f"ERROR: Compression level must be between 0 and 9")
+            logger.error(f"ERROR: Compression level must be between 0 and 9")
             return False
 
         if os.path.isdir(output_zip):
             timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
             output_zip = os.path.join(output_zip, f"backup_{timestamp}.zip")
 
-        log_func(f"Starting compression with level {compression_level}...")
+        logger.info(f"Starting compression with level {compression_level}...")
 
         store_extensions = _get_store_without_compression_extensions()
         archive_files = _collect_files_for_archiving(source_path, should_ignore_func)
         if not archive_files:
-            log_func("WARNING: No files found to compress")
+            logger.warning("WARNING: No files found to compress")
             return False
 
         if os.path.isfile(source_path):
@@ -140,15 +144,15 @@ def compress_to_zip(source_path: str, output_zip: str, compression_level: int = 
 
         if os.path.exists(output_zip):
             output_size = os.path.getsize(output_zip)
-            log_func("Compression completed!")
-            log_func(f"ZIP size: {_format_size(output_size)}")
+            logger.info("Compression completed!")
+            logger.info(f"ZIP size: {_format_size(output_size)}")
             return True
 
-        log_func("WARNING: 7-Zip reported success but no ZIP file was created")
+        logger.warning("WARNING: 7-Zip reported success but no ZIP file was created")
         return True
 
     except Exception as e:
-        log_func(f"ERROR: Compression failed: {e}")
+        logger.error(f"ERROR: Compression failed: {e}")
         return False
 
 
