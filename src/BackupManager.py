@@ -835,7 +835,25 @@ Examples:
         dest='ignore_excludes',
         help='Ignore exclude list and copy all files'
     )
+    parser.add_argument(
+        '-gui', '--gui',
+        action='store_true',
+        help='Start BackupManager in GUI mode'
+    )
     args = parser.parse_args()
+
+    # ==========================================
+    # DEVELOPMENT ONLY: Launch GUI mode
+    # ==========================================
+    if args.gui:
+        try:
+            import BackupGui
+            BackupGui.start_gui(args)
+            sys.exit(0)
+        except Exception as e:
+            log(f"ERROR: Failed to start GUI: {e}")
+            sys.exit(1)
+    # ==========================================
     
     # Set ignore-exclude-list flag before any scanning begins
     IGNORE_EXCLUDE_LIST = args.ignore_excludes

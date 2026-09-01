@@ -302,3 +302,73 @@ def test_install_update_handles_empty_zip(tmp_path, monkeypatch):
     assert result is False
     # Nothing should have been deleted since we bail out before cleanup
     assert (script_dir / "BackupManager.py").read_text(encoding="utf-8") == "old script"
+
+
+# ----------------------------
+# GUI Tests
+# ----------------------------
+
+def test_gui_arguments_mapping():
+    import argparse
+    from unittest.mock import MagicMock
+    import tkinter as tk
+    import BackupGui
+    
+    # Mock CLI arguments passed to GUI (non-conflicting)
+    mock_args = argparse.Namespace(
+        source="/path/to/source",
+        target="/path/to/target",
+        mirror=False,
+        ignore_excludes=True,
+        compression=6,
+        sevenzip=False,
+        password=None
+    )
+    
+    # We create a tkinter root instance but prevent loop execution
+    root = tk.Tk()
+    try:
+        app = BackupGui.BackupGuiApp(root, mock_args)
+        
+        # Verify CLI args are mapped to Tk GUI Variables
+        assert app.source_var.get() == os.path.abspath("/path/to/source")
+        assert app.target_var.get() == os.path.abspath("/path/to/target")
+        assert app.mirror_var.get() is False
+        assert app.ignore_excludes_var.get() is True
+        assert app.zip_var.get() is True
+        assert app.zip_level_var.get() == 6
+        assert app.sevenzip_var.get() is False
+    finally:
+        root.destroy()
+
+
+def test_gui_options_exclusivity():
+    import tkinter as tk
+    import BackupGui
+    
+    root = tk.Tk()
+    try:
+        app = BackupGui.BackupGuiApp(root)
+        
+        # 1. Select sevenzip -> should disable zip and mirror
+        app.sevenzip_var.set(True)
+        app.update_options_states()
+        assert app.zip_var.get() is False
+        assert app.mirror_var.get() is False
+        
+        # 2. Select zip -> should disable sevenzip
+        app.sevenzip_var.set(False)
+        app.zip_var.set(True)
+        app.update_options_states()
+        assert app.sevenzip_var.get() is False
+        
+        # 3. Select mirror -> should disable sevenzip and ignore excludes
+        app.zip_var.set(False)
+        app.mirror_var.set(True)
+        app.ignore_excludes_var.set(True)
+        app.update_options_states()
+        assert app.sevenzip_var.get() is False
+        assert app.ignore_excludes_var.get() is False
+        
+    finally:
+        root.destroy()
