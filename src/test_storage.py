@@ -59,13 +59,16 @@ class FakeParamiko:
         self.connect_error = connect_error
         self.client = None
 
-    class AutoAddPolicy:
+    class RejectPolicy:
         pass
 
     def SSHClient(self):
         owner = self
 
         class Client:
+            def load_host_keys(self, path):
+                self.known_hosts_path = path
+
             def set_missing_host_key_policy(self, policy):
                 self.policy = policy
 
@@ -87,7 +90,9 @@ class FakeParamiko:
 def make_storage(tmp_path, remote_root="/backups/my-backup"):
     key = tmp_path / "id_ed25519"
     key.write_text("test key", encoding="utf-8")
-    return SFTPStorage("example.test", "backup", str(key), remote_root)
+    known_hosts = tmp_path / "known_hosts"
+    known_hosts.write_text("example.test ssh-ed25519 test-host-key", encoding="utf-8")
+    return SFTPStorage("example.test", "backup", str(key), remote_root, known_hosts_path=str(known_hosts))
 
 
 def test_connect_creates_remote_root_and_cleanup(tmp_path):
@@ -97,6 +102,8 @@ def test_connect_creates_remote_root_and_cleanup(tmp_path):
 
     with patch.dict(sys.modules, {"paramiko": fake_paramiko}):
         storage.connect()
+        assert isinstance(fake_paramiko.client.policy, fake_paramiko.RejectPolicy)
+        assert fake_paramiko.client.known_hosts_path.endswith("known_hosts")
         assert "/backups" in fake_sftp.directories
         assert "/backups/my-backup" in fake_sftp.directories
         storage.close()

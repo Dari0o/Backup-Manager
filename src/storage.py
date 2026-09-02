@@ -94,7 +94,8 @@ class SFTPStorage(Storage):
     """Paramiko-backed storage using SSH private-key authentication."""
 
     def __init__(self, host: str, username: str, key_path: str, remote_root: str,
-                 port: int = 22, password: Optional[str] = None, timeout: float = 15):
+                 port: int = 22, password: Optional[str] = None, timeout: float = 15,
+                 known_hosts_path: Optional[str] = None):
         self.host = host
         self.username = username
         self.key_path = os.path.expanduser(key_path)
@@ -102,6 +103,9 @@ class SFTPStorage(Storage):
         self.port = port
         self.password = password
         self.timeout = timeout
+        self.known_hosts_path = os.path.expanduser(
+            known_hosts_path or "~/.ssh/known_hosts"
+        )
         self.client = None
         self.sftp = None
         self._transfer_lock = threading.Lock()
@@ -126,7 +130,12 @@ class SFTPStorage(Storage):
                 self.remote_root = posixpath.join("/home", self.username, self.remote_root[2:])
             logger.info("Connecting to SFTP host %s:%s", self.host, self.port)
             self.client = paramiko.SSHClient()
-            self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            if not os.path.isfile(self.known_hosts_path):
+                raise StorageError(
+                    f"SSH known-hosts file does not exist: {self.known_hosts_path}"
+                )
+            self.client.load_host_keys(self.known_hosts_path)
+            self.client.set_missing_host_key_policy(paramiko.RejectPolicy())
             self.client.connect(
                 hostname=self.host, port=self.port, username=self.username,
                 key_filename=self.key_path, password=self.password,

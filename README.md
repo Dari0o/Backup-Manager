@@ -76,6 +76,10 @@ never written to logs or configuration:
 python BackupManager.py --source D:\Data --sftp-host 192.168.2.21 --sftp-port 22 --sftp-username backup --sftp-key C:\Users\me\.ssh\id_ed25519 --sftp-path /backups/my-backup
 ```
 
+Before connecting, add the Raspberry Pi host key to the default
+`~/.ssh/known_hosts` file, for example with `ssh-keyscan`. Unknown or changed
+host keys are rejected. Use `--sftp-known-hosts PATH` when a different file is needed.
+
 The GUI provides the same fields after selecting `SFTP` as the destination. SFTP
 and archive modes are separate; ZIP and 7z outputs remain local files.
 
@@ -96,6 +100,7 @@ and archive modes are separate; ZIP and 7z outputs remain local files.
 | `--sftp-username USER`| SFTP username                                                                                     |
 | `--sftp-key PATH`     | Local SSH private key path                                                                        |
 | `--sftp-path PATH`    | Remote backup root path                                                                           |
+| `--sftp-known-hosts PATH` | SSH known-hosts file used to verify the server identity                                        |
 
 ---
 

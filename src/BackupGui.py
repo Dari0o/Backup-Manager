@@ -66,7 +66,7 @@ class BackupGuiApp:
         self.root = root
         self.args = args
         self.root.title(f"Backup Manager v{BackupManager.VERSION}")
-        self.root.geometry("750x650")
+        self.root.geometry("800x650")
         self.root.minsize(650, 550)
 
         # Style colors
@@ -97,6 +97,7 @@ class BackupGuiApp:
         self.sftp_port_var = tk.StringVar(value="22")
         self.sftp_username_var = tk.StringVar()
         self.sftp_key_var = tk.StringVar()
+        self.sftp_known_hosts_var = tk.StringVar()
         self.mirror_var = tk.BooleanVar(value=False)
         self.ignore_excludes_var = tk.BooleanVar(value=False)
         
@@ -123,6 +124,7 @@ class BackupGuiApp:
                 self.sftp_port_var.set(str(getattr(args, "sftp_port", 22)))
                 self.sftp_username_var.set(args.sftp_username or "")
                 self.sftp_key_var.set(args.sftp_key or "")
+                self.sftp_known_hosts_var.set(getattr(args, "sftp_known_hosts", "") or "")
                 if getattr(args, "sftp_path", None):
                     self.target_var.set(args.sftp_path)
             if args.mirror:
@@ -219,13 +221,21 @@ class BackupGuiApp:
 
         self.sftp_frame = tk.Frame(dir_card, bg=self.card_bg)
         self.sftp_frame.grid(row=6, column=0, columnspan=2, sticky=tk.EW)
-        fields = (("Host", self.sftp_host_var), ("Port", self.sftp_port_var), ("Username", self.sftp_username_var), ("SSH Key", self.sftp_key_var))
+        fields = (("Host", self.sftp_host_var), ("Port", self.sftp_port_var), ("Username", self.sftp_username_var), ("SSH Key", self.sftp_key_var), ("Known Hosts", self.sftp_known_hosts_var))
         for index, (label, variable) in enumerate(fields):
             tk.Label(self.sftp_frame, text=label, bg=self.card_bg, fg=self.fg_muted, font=("Segoe UI", 9)).grid(row=0, column=index, sticky=tk.W, padx=(0, 5))
-            tk.Entry(self.sftp_frame, textvariable=variable, bg=self.bg_color, fg=self.fg_color, insertbackground=self.fg_color, relief="flat", width=16 if label != "SSH Key" else 24).grid(row=1, column=index, sticky=tk.EW, padx=(0, 5))
+            tk.Entry(self.sftp_frame, textvariable=variable, bg=self.bg_color, fg=self.fg_color, insertbackground=self.fg_color, relief="flat", width=16 if label not in ("SSH Key", "Known Hosts") else 24).grid(row=1, column=index, sticky=tk.EW, padx=(0, 5))
+        tk.Label(
+            self.sftp_frame,
+            text="Leave empty to use the default ~/.ssh/known_hosts file.",
+            bg=self.card_bg,
+            fg=self.fg_muted,
+            font=("Segoe UI", 8),
+        ).grid(row=2, column=4, sticky=tk.W, padx=(0, 5), pady=(2, 0))
         self.sftp_frame.columnconfigure(0, weight=2)
         self.sftp_frame.columnconfigure(2, weight=2)
         self.sftp_frame.columnconfigure(3, weight=3)
+        self.sftp_frame.columnconfigure(4, weight=3)
         self.sftp_frame.grid_remove()
         
         dir_card.columnconfigure(0, weight=1)
@@ -803,6 +813,7 @@ class BackupGuiApp:
                             username=self.sftp_username_var.get().strip(),
                             key_path=self.sftp_key_var.get().strip(),
                             remote_root=target,
+                            known_hosts_path=self.sftp_known_hosts_var.get().strip() or None,
                         )
                     self.active_storage = selected_storage
                     BackupManager.main(source_dir=source, target_dir=target, storage=selected_storage)

@@ -815,6 +815,7 @@ Examples:
     parser.add_argument('--sftp-username', type=str, default=None, help='SFTP username')
     parser.add_argument('--sftp-key', type=str, default=None, help='SSH private key path')
     parser.add_argument('--sftp-path', type=str, default=None, help='Remote SFTP backup path')
+    parser.add_argument('--sftp-known-hosts', type=str, default=None, help='SSH known-hosts file path')
     parser.add_argument(
         '-c', '--compression',
         type=int,
@@ -957,6 +958,7 @@ Examples:
                     username=args.sftp_username,
                     key_path=args.sftp_key,
                     remote_root=args.sftp_path,
+                    known_hosts_path=args.sftp_known_hosts,
                 ),
             )
         except Exception as exc:
