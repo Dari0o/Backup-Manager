@@ -12,17 +12,14 @@ The program intelligently compares files based on size and modification date, an
 
 - Multithreaded file scanning
 - Fast parallel copying
-- Intelligent file comparison (size + modification time)
+- SFTP backups using SSH private-key authentication
+- Intelligent file comparison
 - Easy CLI usage for automation
-- Optional Mirror Mode (synchronization)
+- Mirror Mode (synchronization)
 - Fast ZIP compression with adjustable compression level using 7-Zip
 - Optional AES-256 encrypted 7z archives
 - GitHub update system
-- Supports large directories
-- Symlink-safe (`follow_symlinks=False`)
-- Progress bars with `tqdm`
 - Optimized for NAS / SMB shares
-- SFTP backups using SSH private-key authentication
 
 ---
 
