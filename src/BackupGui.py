@@ -11,6 +11,7 @@ from tkinter import filedialog, messagebox, scrolledtext
 from tkinter import ttk  # Kept only for progressbar
 
 from logger import setup_logger, set_gui_log_handler
+from storage import SFTPStorage
 
 logger = setup_logger(__name__)
 
@@ -91,6 +92,11 @@ class BackupGuiApp:
         # State Variables
         self.source_var = tk.StringVar()
         self.target_var = tk.StringVar()
+        self.destination_var = tk.StringVar(value="Local")
+        self.sftp_host_var = tk.StringVar()
+        self.sftp_port_var = tk.StringVar(value="22")
+        self.sftp_username_var = tk.StringVar()
+        self.sftp_key_var = tk.StringVar()
         self.mirror_var = tk.BooleanVar(value=False)
         self.ignore_excludes_var = tk.BooleanVar(value=False)
         
@@ -110,7 +116,15 @@ class BackupGuiApp:
             if args.source:
                 self.source_var.set(os.path.abspath(args.source))
             if args.target:
-                self.target_var.set(os.path.abspath(args.target))
+                self.target_var.set(os.path.abspath(args.target) if not getattr(args, "sftp_host", None) else args.target)
+            if getattr(args, "sftp_host", None):
+                self.destination_var.set("SFTP")
+                self.sftp_host_var.set(args.sftp_host)
+                self.sftp_port_var.set(str(getattr(args, "sftp_port", 22)))
+                self.sftp_username_var.set(args.sftp_username or "")
+                self.sftp_key_var.set(args.sftp_key or "")
+                if getattr(args, "sftp_path", None):
+                    self.target_var.set(args.sftp_path)
             if args.mirror:
                 self.mirror_var.set(True)
             if args.ignore_excludes:
@@ -197,8 +211,25 @@ class BackupGuiApp:
         
         target_btn = self.create_flat_button(dir_card, "Browse...", self.browse_target)
         target_btn.grid(row=3, column=1, sticky=tk.E)
+
+        tk.Label(dir_card, text="Destination:", bg=self.card_bg, fg=self.fg_color, font=("Segoe UI", 10, "bold")).grid(row=4, column=0, sticky=tk.W, pady=(10, 4))
+        destination_menu = ttk.Combobox(dir_card, textvariable=self.destination_var, values=("Local", "SFTP"), state="readonly")
+        destination_menu.grid(row=5, column=0, sticky=tk.W, pady=(0, 8))
+        destination_menu.bind("<<ComboboxSelected>>", lambda event: self.update_destination_state())
+
+        self.sftp_frame = tk.Frame(dir_card, bg=self.card_bg)
+        self.sftp_frame.grid(row=6, column=0, columnspan=2, sticky=tk.EW)
+        fields = (("Host", self.sftp_host_var), ("Port", self.sftp_port_var), ("Username", self.sftp_username_var), ("SSH Key", self.sftp_key_var))
+        for index, (label, variable) in enumerate(fields):
+            tk.Label(self.sftp_frame, text=label, bg=self.card_bg, fg=self.fg_muted, font=("Segoe UI", 9)).grid(row=0, column=index, sticky=tk.W, padx=(0, 5))
+            tk.Entry(self.sftp_frame, textvariable=variable, bg=self.bg_color, fg=self.fg_color, insertbackground=self.fg_color, relief="flat", width=16 if label != "SSH Key" else 24).grid(row=1, column=index, sticky=tk.EW, padx=(0, 5))
+        self.sftp_frame.columnconfigure(0, weight=2)
+        self.sftp_frame.columnconfigure(2, weight=2)
+        self.sftp_frame.columnconfigure(3, weight=3)
+        self.sftp_frame.grid_remove()
         
         dir_card.columnconfigure(0, weight=1)
+        self.update_destination_state()
 
         # --- Card 2: Backup Options Grid ---
         options_frame = tk.Frame(main_frame, bg=self.bg_color)
@@ -368,6 +399,16 @@ class BackupGuiApp:
         )
         self.btn_start.pack(side=tk.RIGHT)
 
+        self.btn_cancel = self.create_flat_button(
+            actions_frame,
+            "Stop Backup",
+            self.cancel_backup_process,
+            bg="#8b2e2e",
+            active_bg="#b33a3a"
+        )
+        self.btn_cancel.pack(side=tk.RIGHT, padx=(0, 8))
+        self.btn_cancel.pack_forget()
+
         # --- Card 3: Log Console & Progress ---
         console_card = tk.Frame(main_frame, bg=self.card_bg, highlightthickness=1, highlightbackground=self.border_color, padx=10, pady=10)
         console_card.pack(fill=tk.BOTH, expand=True)
@@ -446,6 +487,8 @@ class BackupGuiApp:
             self.source_var.set(os.path.normpath(path))
 
     def browse_target(self):
+        if self.destination_var.get() == "SFTP":
+            return
         if self.sevenzip_var.get():
             path = filedialog.asksaveasfilename(
                 title="Select Encrypted Archive File",
@@ -525,6 +568,14 @@ class BackupGuiApp:
                 self.chk_sevenzip.config(state="normal", fg=self.fg_color)
             self.chk_ignore.config(state="normal", fg=self.fg_color)
 
+    def update_destination_state(self):
+        if not hasattr(self, "sftp_frame"):
+            return
+        if self.destination_var.get() == "SFTP":
+            self.sftp_frame.grid()
+        else:
+            self.sftp_frame.grid_remove()
+
     def log_message(self, message, tag="info"):
         tag_to_use = tag
         if isinstance(tag, str):
@@ -560,6 +611,11 @@ class BackupGuiApp:
         state_val = "normal" if enabled else "disabled"
         self.btn_start.config(state=state_val)
         self.btn_update.config(state=state_val)
+        if enabled:
+            self.btn_cancel.pack_forget()
+        else:
+            self.btn_cancel.pack(side=tk.RIGHT, padx=(0, 8))
+            self.btn_cancel.config(state="normal")
         
         # Lock fields
         state_entry = "normal" if enabled else "disabled"
@@ -619,6 +675,18 @@ class BackupGuiApp:
         if not os.path.exists(source):
             messagebox.showerror("Error", f"Source folder does not exist:\n{source}")
             return
+        if self.destination_var.get() == "SFTP":
+            if not all((self.sftp_host_var.get().strip(), self.sftp_username_var.get().strip(), self.sftp_key_var.get().strip(), target)):
+                messagebox.showerror("Error", "SFTP host, username, SSH key, and remote path are required.")
+                return
+            try:
+                port = int(self.sftp_port_var.get())
+            except ValueError:
+                messagebox.showerror("Error", "SFTP port must be a number.")
+                return
+            if port < 1 or port > 65535:
+                messagebox.showerror("Error", "SFTP port must be between 1 and 65535.")
+                return
         if source == target:
             messagebox.showerror("Error", "Source and Target cannot be the same folder.")
             return
@@ -660,6 +728,14 @@ class BackupGuiApp:
 
         # Start backup thread
         threading.Thread(target=self.backup_worker, args=(source, target), daemon=False).start()
+
+    def cancel_backup_process(self):
+        if not self.is_running:
+            return
+        self.btn_cancel.config(state="disabled")
+        ui_queue.put(("log", "WARNING: Backup cancellation requested; waiting for the current transfer to finish."))
+        if getattr(self, "active_storage", None) is not None:
+            self.active_storage.cancel()
 
     def backup_worker(self, source, target):
         success = False
@@ -719,7 +795,17 @@ class BackupGuiApp:
             else:
                 try:
                     # Run main logic without letting CLI exit calls terminate the GUI app.
-                    BackupManager.main(source_dir=source, target_dir=target)
+                    selected_storage = None
+                    if self.destination_var.get() == "SFTP":
+                        selected_storage = SFTPStorage(
+                            host=self.sftp_host_var.get().strip(),
+                            port=int(self.sftp_port_var.get()),
+                            username=self.sftp_username_var.get().strip(),
+                            key_path=self.sftp_key_var.get().strip(),
+                            remote_root=target,
+                        )
+                    self.active_storage = selected_storage
+                    BackupManager.main(source_dir=source, target_dir=target, storage=selected_storage)
                     success = True
                 except SystemExit as e:
                     ui_queue.put(("log", f"WARNING: GUI backup task was interrupted by a system exit: {e}"))
@@ -739,6 +825,7 @@ class BackupGuiApp:
             success = False
             
         finally:
+            self.active_storage = None
             elapsed = time.time() - start_time
             ui_queue.put(("log", f"Time elapsed: {elapsed:.2f} seconds"))
             ui_queue.put(("backup_done", success))

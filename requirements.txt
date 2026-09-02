@@ -1,3 +1,4 @@
 tqdm
 prompt_toolkit
 requests
+paramiko

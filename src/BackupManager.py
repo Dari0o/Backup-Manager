@@ -24,6 +24,8 @@ except ImportError:
     compress_to_zip = None
 
 from logger import setup_logger
+from storage import LocalStorage, Storage
+from storage import SFTPStorage
 
 logger = setup_logger(__name__)
 
@@ -391,6 +393,17 @@ def copy_file(src: str, dst_base: str, src_base: str, progress: Any) -> bool:
         return False
 
 
+def copy_to_storage(src: str, src_base: str, storage: Storage, progress: Any) -> bool:
+    """Upload one source file through the selected storage backend."""
+    rel = os.path.relpath(src, src_base)
+    try:
+        storage.upload_file(src, rel, progress)
+        return True
+    except Exception as e:
+        logger.warning(f"Skipping file due to storage error: {src} -> {rel}: {e}")
+        return False
+
+
 # ----------------------------
 # Check if file needs replacement
 # ----------------------------
@@ -420,7 +433,7 @@ def stat_file(path: str) -> Optional[Tuple[str, int, float]]:
         return (path, stat.st_size, stat.st_mtime)
 
     except Exception:
-        logger.error(f"Error accessing file: {path}")
+        log(f"Error accessing file: {path}")
         return None
 
 
@@ -599,7 +612,19 @@ def print_logo() -> None:
 v {VERSION}
     """)
 
-def main(source_dir: Optional[str] = None, target_dir: Optional[str] = None) -> None:
+def main(source_dir: Optional[str] = None, target_dir: Optional[str] = None,
+         storage: Optional[Storage] = None) -> None:
+    """Run a backup, using local storage unless another backend is supplied."""
+    if storage is None and (source_dir is None or target_dir is None):
+        source_dir, target_dir = get_directories_interactive()
+    if target_dir is None:
+        target_dir = ""
+    selected_storage = storage or LocalStorage(target_dir)
+    with selected_storage:
+        _run_backup(source_dir, target_dir, selected_storage)
+
+
+def _run_backup(source_dir: Optional[str], target_dir: str, storage: Storage) -> None:
 
     print_logo()
 
@@ -613,7 +638,7 @@ def main(source_dir: Optional[str] = None, target_dir: Optional[str] = None) -> 
             input("Press Enter to exit...")
             sys.exit(1)
         
-        if not os.path.exists(target_dir):
+        if isinstance(storage, LocalStorage) and not os.path.exists(target_dir):
             logger.error(f"ERROR: Target folder does not exist: {target_dir}")
             input("Press Enter to exit...")
             sys.exit(1)
@@ -623,7 +648,8 @@ def main(source_dir: Optional[str] = None, target_dir: Optional[str] = None) -> 
             input("Press Enter to exit...")
             sys.exit(1)
 
-    os.makedirs(target_dir, exist_ok=True)
+    if isinstance(storage, LocalStorage):
+        os.makedirs(target_dir, exist_ok=True)
 
     logger.info(f"Target folder set: {target_dir}")
     logger.info("=== Script started ===")
@@ -635,9 +661,7 @@ def main(source_dir: Optional[str] = None, target_dir: Optional[str] = None) -> 
     logger.info(f"Files found in source: {len(source_files)}")
     logger.info("Please wait, scanning target directory...")
 
-    target_index, target_size = load_target_index_multithread(
-        target_dir, "Scanning Target"
-    )
+    target_index = storage.index()
 
     # If mirror mode: delete files in target that are not present in source
     if MIRROR_MODE:
@@ -669,28 +693,13 @@ def main(source_dir: Optional[str] = None, target_dir: Optional[str] = None) -> 
                 deleted = 0
                 with tqdm_.tqdm(total=len(to_delete), desc="Deleting", unit="items") as del_pbar:
                     for rel in to_delete:
-                        target_path = os.path.join(target_dir, rel)
                         try:
-                            if os.path.isfile(target_path) or os.path.islink(target_path):
-                                os.remove(target_path)
-                                deleted += 1
-                                logger.info(f"Deleted: {target_path}")
-                            elif os.path.isdir(target_path):
-                                shutil.rmtree(target_path)
-                                deleted += 1
-                                logger.info(f"Deleted dir: {target_path}")
+                            storage.delete(rel)
+                            deleted += 1
                         except Exception as e:
-                            logger.error(f"Error deleting {target_path}: {e}")
+                            logger.error(f"Error deleting {rel}: {e}")
                         finally:
                             del_pbar.update(1)
-
-                # Remove any now-empty directories under target
-                for root, dirs, files in os.walk(target_dir, topdown=False):
-                    try:
-                        if not os.listdir(root):
-                            os.rmdir(root)
-                    except Exception:
-                        pass
 
                 logger.info(f"Mirror mode: deleted {deleted} items")
 
@@ -741,28 +750,23 @@ def main(source_dir: Optional[str] = None, target_dir: Optional[str] = None) -> 
             unit_scale=True,
             desc="Copying",
         ) as pbar:
-
-            with ThreadPoolExecutor(
-                max_workers=THREADS
-            ) as executor:
-
-                futures = []
-
-                for path, size in files_to_copy:
-
-                    futures.append(
-                        executor.submit(
-                            copy_file,
-                            path,
-                            target_dir,
-                            source_dir,
-                            pbar,
-                        )
-                    )
-
-                for f in as_completed(futures):
-                    if not f.result():
+            if storage.supports_cancellation():
+                for file_index, (path, size) in enumerate(files_to_copy):
+                    if getattr(storage, "cancel_event", None) is not None and storage.cancel_event.is_set():
+                        logger.warning("Copy process cancelled")
+                        skipped_files += len(files_to_copy) - file_index
+                        break
+                    if not copy_to_storage(path, source_dir, storage, pbar):
                         skipped_files += 1
+            else:
+                with ThreadPoolExecutor(max_workers=THREADS) as executor:
+                    futures = [
+                        executor.submit(copy_to_storage, path, source_dir, storage, pbar)
+                        for path, size in files_to_copy
+                    ]
+                    for f in as_completed(futures):
+                        if not f.result():
+                            skipped_files += 1
 
         if skipped_files:
             logger.warning(f"Copy process completed with {skipped_files} skipped file(s) due to access errors")
@@ -806,6 +810,11 @@ Examples:
         help='Target directory path',
         default=None
     )
+    parser.add_argument('--sftp-host', type=str, default=None, help='SFTP host')
+    parser.add_argument('--sftp-port', type=int, default=22, help='SFTP port')
+    parser.add_argument('--sftp-username', type=str, default=None, help='SFTP username')
+    parser.add_argument('--sftp-key', type=str, default=None, help='SSH private key path')
+    parser.add_argument('--sftp-path', type=str, default=None, help='Remote SFTP backup path')
     parser.add_argument(
         '-c', '--compression',
         type=int,
@@ -932,6 +941,28 @@ Examples:
 
     if args.mirror:
         MIRROR_MODE = True
+
+    sftp_requested = any((args.sftp_host, args.sftp_username, args.sftp_key, args.sftp_path))
+    if sftp_requested:
+        if not all((args.sftp_host, args.sftp_username, args.sftp_key, args.sftp_path, args.source)):
+            logger.error("ERROR: SFTP requires --source, --sftp-host, --sftp-username, --sftp-key, and --sftp-path")
+            sys.exit(1)
+        try:
+            main(
+                source_dir=args.source,
+                target_dir=args.sftp_path,
+                storage=SFTPStorage(
+                    host=args.sftp_host,
+                    port=args.sftp_port,
+                    username=args.sftp_username,
+                    key_path=args.sftp_key,
+                    remote_root=args.sftp_path,
+                ),
+            )
+        except Exception as exc:
+            logger.error(f"SFTP backup failed: {exc}")
+            sys.exit(1)
+        sys.exit(0)
 
     # Interactive compression mode
     if args.compression:

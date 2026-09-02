@@ -22,6 +22,7 @@ The program intelligently compares files based on size and modification date, an
 - Symlink-safe (`follow_symlinks=False`)
 - Progress bars with `tqdm`
 - Optimized for NAS / SMB shares
+- SFTP backups using SSH private-key authentication
 
 ---
 
@@ -66,6 +67,18 @@ python BackupManager.py --sevenzip --password MyPassword --source D:\Data --targ
 python BackupManager.py --update
 ```
 
+### SFTP backups
+
+Use an SSH private key and an explicit remote root. The key path is read locally and
+never written to logs or configuration:
+
+```bash
+python BackupManager.py --source D:\Data --sftp-host 192.168.2.21 --sftp-port 22 --sftp-username backup --sftp-key C:\Users\me\.ssh\id_ed25519 --sftp-path /backups/my-backup
+```
+
+The GUI provides the same fields after selecting `SFTP` as the destination. SFTP
+and archive modes are separate; ZIP and 7z outputs remain local files.
+
 ### Arguments
 
 | Argument              | Description                                                                                       |
@@ -78,6 +91,11 @@ python BackupManager.py --update
 | `--password PASSWORD` | Password used for 7z encryption                                                                   |
 | `--update`            | Check for and install updates                                                                     |
 | `-i`                  | Ignore the exclude list and copy all files                                                        |
+| `--sftp-host HOST`    | SFTP server hostname                                                                              |
+| `--sftp-port PORT`    | SFTP server port (default: 22)                                                                    |
+| `--sftp-username USER`| SFTP username                                                                                     |
+| `--sftp-key PATH`     | Local SSH private key path                                                                        |
+| `--sftp-path PATH`    | Remote backup root path                                                                           |
 
 ---
 
