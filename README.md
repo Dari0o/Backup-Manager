@@ -47,6 +47,12 @@ python -m pip install -r requirements.txt
 python BackupManager.py
 ```
 
+### GUI Mode
+
+```bash
+python BackupManager.py -gui
+```
+
 ---
 
 ## CLI Arguments
