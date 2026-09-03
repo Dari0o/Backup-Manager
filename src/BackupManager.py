@@ -821,95 +821,10 @@ def run_archive_sftp(source_dir: str, storage: SFTPStorage, archive_type: str,
             return False
 
 
-if __name__ == "__main__":
+def run_console(args: argparse.Namespace) -> None:
+    """Run BackupManager in console (CLI/interactive) mode using the parsed arguments."""
+    global IGNORE_EXCLUDE_LIST, MIRROR_MODE
 
-    # Create argument parser
-    parser = argparse.ArgumentParser(
-        description="BackupManager - A fast backup utility",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  python BackupManager.py
-  python BackupManager.py --source D:\\Data --target \\\\nas\\backup
-  python BackupManager.py --source D:\\Data --target \\\\nas\\backup --mirror
-  python BackupManager.py --source D:\\Data --target \\\\nas\\backup -c 6
-  python BackupManager.py -c 6
-  python BackupManager.py --sevenzip --password 1234  --source D:\\Data --target \\\\nas\\backup
-  python BackupManager.py --update
-        """
-    )
-    
-    parser.add_argument(
-        '--source',
-        type=str,
-        help='Source directory path',
-        default=None
-    )
-    parser.add_argument(
-        '--target',
-        type=str,
-        help='Target directory path',
-        default=None
-    )
-    parser.add_argument('--sftp-host', type=str, default=None, help='SFTP host')
-    parser.add_argument('--sftp-port', type=int, default=22, help='SFTP port')
-    parser.add_argument('--sftp-username', type=str, default=None, help='SFTP username')
-    parser.add_argument('--sftp-key', type=str, default=None, help='SSH private key path')
-    parser.add_argument('--sftp-path', type=str, default=None, help='Remote SFTP backup path')
-    parser.add_argument('--sftp-known-hosts', type=str, default=None, help='SSH known-hosts file path')
-    parser.add_argument(
-        '-c', '--compression',
-        type=int,
-        help='Enable compression and set compression level (0-9). 0=no compression (fastest), 9=maximum compression (slowest)',
-        default=None
-    )
-    parser.add_argument(
-        '--mirror',
-        action='store_true',
-        help='Enable mirror mode (delete files in target that are not in source)'
-    )
-    parser.add_argument(
-        '--sevenzip',
-        action='store_true',
-        help='Enable 7z encrypted backup mode'
-    )
-    parser.add_argument(
-        '--password',
-        type=str,
-        help='Password for 7z encryption',
-        default=None
-    )
-    parser.add_argument(
-        '--update',
-        action='store_true',
-        help='Check for and install updates'
-    )
-    parser.add_argument(
-        '-i',
-        action='store_true',
-        dest='ignore_excludes',
-        help='Ignore exclude list and copy all files'
-    )
-    parser.add_argument(
-        '-gui', '--gui',
-        action='store_true',
-        help='Start BackupManager in GUI mode'
-    )
-    args = parser.parse_args()
-
-    # ==========================================
-    # DEVELOPMENT ONLY: Launch GUI mode
-    # ==========================================
-    if args.gui:
-        try:
-            import BackupGui
-            BackupGui.start_gui(args)
-            sys.exit(0)
-        except Exception as e:
-            logger.error(f"ERROR: Failed to start GUI: {e}")
-            sys.exit(1)
-    # ==========================================
-    
     # Set ignore-exclude-list flag before any scanning begins
     IGNORE_EXCLUDE_LIST = args.ignore_excludes
 
@@ -1115,3 +1030,97 @@ Examples:
 
         input("Press Enter to exit...")
         sys.exit(0)
+
+
+if __name__ == "__main__":
+
+    # Create argument parser
+    parser = argparse.ArgumentParser(
+        description="BackupManager - A fast backup utility",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python BackupManager.py
+  python BackupManager.py --console --source D:\\Data --target \\\\nas\\backup
+  python BackupManager.py --console --source D:\\Data --target \\\\nas\\backup --mirror
+  python BackupManager.py --console --source D:\\Data --target \\\\nas\\backup -c 6
+  python BackupManager.py --console -c 6
+  python BackupManager.py --console --sevenzip --password 1234  --source D:\\Data --target \\\\nas\\backup
+  python BackupManager.py --console --update
+  python BackupManager.py
+        """
+    )
+
+    parser.add_argument(
+        '--source',
+        type=str,
+        help='Source directory path',
+        default=None
+    )
+    parser.add_argument(
+        '--target',
+        type=str,
+        help='Target directory path',
+        default=None
+    )
+    parser.add_argument('--sftp-host', type=str, default=None, help='SFTP host')
+    parser.add_argument('--sftp-port', type=int, default=22, help='SFTP port')
+    parser.add_argument('--sftp-username', type=str, default=None, help='SFTP username')
+    parser.add_argument('--sftp-key', type=str, default=None, help='SSH private key path')
+    parser.add_argument('--sftp-path', type=str, default=None, help='Remote SFTP backup path')
+    parser.add_argument('--sftp-known-hosts', type=str, default=None, help='SSH known-hosts file path')
+    parser.add_argument(
+        '-c', '--compression',
+        type=int,
+        help='Enable compression and set compression level (0-9). 0=no compression (fastest), 9=maximum compression (slowest)',
+        default=None
+    )
+    parser.add_argument(
+        '--mirror',
+        action='store_true',
+        help='Enable mirror mode (delete files in target that are not in source)'
+    )
+    parser.add_argument(
+        '--sevenzip',
+        action='store_true',
+        help='Enable 7z encrypted backup mode'
+    )
+    parser.add_argument(
+        '--password',
+        type=str,
+        help='Password for 7z encryption',
+        default=None
+    )
+    parser.add_argument(
+        '--update',
+        action='store_true',
+        help='Check for and install updates'
+    )
+    parser.add_argument(
+        '-i',
+        action='store_true',
+        dest='ignore_excludes',
+        help='Ignore exclude list and copy all files'
+    )
+    parser.add_argument(
+        '--console',
+        action='store_true',
+        help='Start BackupManager in console (CLI/interactive) mode instead of the default GUI'
+    )
+    args = parser.parse_args()
+
+    if args.console:
+        # ==========================================
+        # Console mode (explicit via --console)
+        # ==========================================
+        run_console(args)
+    else:
+        # ==========================================
+        # GUI mode (default when no arguments/flags override it)
+        # ==========================================
+        try:
+            import BackupGui
+            BackupGui.start_gui(args)
+        except Exception as e:
+            logger.error(f"ERROR: Failed to start GUI: {e}")
+            sys.exit(1)
