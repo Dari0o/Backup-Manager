@@ -752,25 +752,40 @@ class BackupGuiApp:
         start_time = time.time()
         
         try:
+            selected_storage = None
+            if self.destination_var.get() == "SFTP":
+                selected_storage = SFTPStorage(
+                    host=self.sftp_host_var.get().strip(),
+                    port=int(self.sftp_port_var.get()),
+                    username=self.sftp_username_var.get().strip(),
+                    key_path=self.sftp_key_var.get().strip(),
+                    remote_root=target,
+                    known_hosts_path=self.sftp_known_hosts_var.get().strip() or None,
+                )
+                self.active_storage = selected_storage
+
             # 7z Encrypted archive path
             if self.sevenzip_var.get():
                 ui_queue.put(("log", "=== Initializing 7z encrypted backup ==="))
                 ui_queue.put(("log", f"Source: {source}"))
                 ui_queue.put(("log", f"Archive file: {target}"))
                 
-                # Make parent folder
-                parent = os.path.dirname(target)
-                if parent:
-                    os.makedirs(parent, exist_ok=True)
-                
-                ui_queue.put(("progress_init", {"total": 0, "desc": "7z Encrypting", "indeterminate": True}))
-                success = crypto_utils.encrypt_directory_7z(
-                    source_dir=source,
-                    output_file=target,
-                    password=self.password_var.get(),
-                    log_func=lambda msg: ui_queue.put(("log", msg)),
-                    progress_callback=lambda percent: ui_queue.put(("progress_update", {"percent": percent}))
-                )
+                if selected_storage is not None:
+                    success = BackupManager.run_archive_sftp(
+                        source, selected_storage, "7z", password=self.password_var.get()
+                    )
+                else:
+                    parent = os.path.dirname(target)
+                    if parent:
+                        os.makedirs(parent, exist_ok=True)
+                    ui_queue.put(("progress_init", {"total": 0, "desc": "7z Encrypting", "indeterminate": True}))
+                    success = crypto_utils.encrypt_directory_7z(
+                        source_dir=source,
+                        output_file=target,
+                        password=self.password_var.get(),
+                        log_func=lambda msg: ui_queue.put(("log", msg)),
+                        progress_callback=lambda percent: ui_queue.put(("progress_update", {"percent": percent}))
+                    )
                 ui_queue.put(("progress_close", {}))
                     
             # ZIP Compression path
@@ -784,38 +799,31 @@ class BackupGuiApp:
                 else:
                     ui_queue.put(("progress_init", {"total": 0, "desc": "7z Compressing", "indeterminate": True}))
 
-                    # Make parent folder if file path
-                    if target.lower().endswith(".zip"):
-                        parent = os.path.dirname(target)
-                        if parent:
-                            os.makedirs(parent, exist_ok=True)
-
-                    success = compress_to_zip(
-                        source,
-                        target,
-                        compression_level=self.zip_level_var.get(),
-                        log_func=lambda msg: ui_queue.put(("log", msg)),
-                        should_ignore_func=BackupManager.should_ignore,
-                        num_threads=BackupManager.THREADS,
-                        progress_callback=lambda percent: ui_queue.put(("progress_update", {"percent": percent}))
-                    )
+                    if selected_storage is not None:
+                        success = BackupManager.run_archive_sftp(
+                            source, selected_storage, "zip",
+                            compression_level=self.zip_level_var.get()
+                        )
+                    else:
+                        if target.lower().endswith(".zip"):
+                            parent = os.path.dirname(target)
+                            if parent:
+                                os.makedirs(parent, exist_ok=True)
+                        success = compress_to_zip(
+                            source,
+                            target,
+                            compression_level=self.zip_level_var.get(),
+                            log_func=lambda msg: ui_queue.put(("log", msg)),
+                            should_ignore_func=BackupManager.should_ignore,
+                            num_threads=BackupManager.THREADS,
+                            progress_callback=lambda percent: ui_queue.put(("progress_update", {"percent": percent}))
+                        )
                     ui_queue.put(("progress_close", {}))
             
             # Normal Backup path
             else:
                 try:
                     # Run main logic without letting CLI exit calls terminate the GUI app.
-                    selected_storage = None
-                    if self.destination_var.get() == "SFTP":
-                        selected_storage = SFTPStorage(
-                            host=self.sftp_host_var.get().strip(),
-                            port=int(self.sftp_port_var.get()),
-                            username=self.sftp_username_var.get().strip(),
-                            key_path=self.sftp_key_var.get().strip(),
-                            remote_root=target,
-                            known_hosts_path=self.sftp_known_hosts_var.get().strip() or None,
-                        )
-                    self.active_storage = selected_storage
                     BackupManager.main(source_dir=source, target_dir=target, storage=selected_storage)
                     success = True
                 except SystemExit as e:

@@ -83,8 +83,9 @@ Before connecting, add the Raspberry Pi host key to the default
 `~/.ssh/known_hosts` file, for example with `ssh-keyscan`. Unknown or changed
 host keys are rejected. Use `--sftp-known-hosts PATH` when a different file is needed.
 
-The GUI provides the same fields after selecting `SFTP` as the destination. SFTP
-and archive modes are separate; ZIP and 7z outputs remain local files.
+The GUI provides the same fields after selecting `SFTP` as the destination. For
+SFTP archive backups, ZIP and 7z files are created temporarily and uploaded
+under the remote root; the temporary local files are removed afterward.
 
 ### Arguments
 

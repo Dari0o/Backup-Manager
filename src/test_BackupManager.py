@@ -7,6 +7,22 @@ import BackupManager as bm
 import compression as compression_module
 
 
+class FakeArchiveStorage:
+    def __init__(self):
+        self.uploaded = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        pass
+
+    def upload_file(self, local_path, relative_path, progress):
+        with open(local_path, "rb") as archive:
+            self.uploaded.append((relative_path, archive.read()))
+        progress.update(len(self.uploaded[-1][1]))
+
+
 
 # ----------------------------
 # Version tests
@@ -229,6 +245,36 @@ def test_compress_to_zip_reports_real_7z_percentages(tmp_path):
 
     assert result is True
     assert seen == [10, 45, 100]
+
+
+def test_zip_archive_can_be_uploaded_to_sftp_storage(tmp_path, monkeypatch):
+    storage = FakeArchiveStorage()
+
+    def create_archive(source, output, *args, **kwargs):
+        with open(output, "wb") as archive:
+            archive.write(b"zip archive")
+        return True
+
+    monkeypatch.setattr(bm, "compress_to_zip", create_archive)
+
+    assert bm.run_archive_sftp(str(tmp_path), storage, "zip") is True
+    assert storage.uploaded[0][0].endswith(".zip")
+    assert storage.uploaded[0][1] == b"zip archive"
+
+
+def test_7z_archive_can_be_uploaded_to_sftp_storage(tmp_path, monkeypatch):
+    storage = FakeArchiveStorage()
+
+    def create_archive(source_dir, output_file, **kwargs):
+        with open(output_file, "wb") as archive:
+            archive.write(b"7z archive")
+        return True
+
+    monkeypatch.setattr(bm, "encrypt_directory_7z", create_archive)
+
+    assert bm.run_archive_sftp(str(tmp_path), storage, "7z", password="secret") is True
+    assert storage.uploaded[0][0].endswith(".7z")
+    assert storage.uploaded[0][1] == b"7z archive"
 
 
 def _build_fake_release_zip(root_folder_name: str, files: dict) -> bytes:

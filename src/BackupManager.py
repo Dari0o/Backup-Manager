@@ -4,6 +4,7 @@ import sys
 import argparse
 import importlib.util
 import subprocess
+import tempfile
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import tqdm as tqdm_
@@ -780,6 +781,46 @@ def _run_backup(source_dir: Optional[str], target_dir: str, storage: Storage) ->
     logger.info("=== Script finished ===")
 
 
+def run_archive_sftp(source_dir: str, storage: SFTPStorage, archive_type: str,
+                     compression_level: int = 3, password: Optional[str] = None) -> bool:
+    """Create an archive temporarily, upload it to SFTP, then remove the local copy."""
+    extension = ".7z" if archive_type == "7z" else ".zip"
+    archive_name = f"backup_{datetime.now().strftime('%Y_%m_%d_%H_%M_%S')}{extension}"
+
+    with tempfile.TemporaryDirectory(prefix="backup_manager_") as temp_dir:
+        local_archive = os.path.join(temp_dir, archive_name)
+        try:
+            with storage:
+                if archive_type == "7z":
+                    created = encrypt_directory_7z(
+                        source_dir=source_dir,
+                        output_file=local_archive,
+                        password=password or "",
+                        log_func=logger.info,
+                    )
+                else:
+                    created = compress_to_zip(
+                        source_dir,
+                        local_archive,
+                        compression_level,
+                        log_func=logger.info,
+                        should_ignore_func=should_ignore,
+                        num_threads=THREADS,
+                    )
+                if not created:
+                    return False
+
+                archive_size = os.path.getsize(local_archive)
+                with tqdm_.tqdm(total=archive_size, unit="B", unit_scale=True,
+                                desc="Uploading archive") as progress:
+                    storage.upload_file(local_archive, archive_name, progress)
+            logger.info("Backup completed: %s", archive_name)
+            return True
+        except Exception as exc:
+            logger.error("SFTP archive backup failed: %s", exc)
+            return False
+
+
 if __name__ == "__main__":
 
     # Create argument parser
@@ -899,6 +940,31 @@ Examples:
             print("ERROR: compression.py could not be imported")
             sys.exit(0)
         
+    sftp_requested = any((args.sftp_host, args.sftp_username, args.sftp_key, args.sftp_path))
+    if sftp_requested:
+        if not all((args.sftp_host, args.sftp_username, args.sftp_key, args.sftp_path, args.source)):
+            logger.error("ERROR: SFTP requires --source, --sftp-host, --sftp-username, --sftp-key, and --sftp-path")
+            sys.exit(1)
+        sftp_storage = SFTPStorage(
+            host=args.sftp_host,
+            port=args.sftp_port,
+            username=args.sftp_username,
+            key_path=args.sftp_key,
+            remote_root=args.sftp_path,
+            known_hosts_path=args.sftp_known_hosts,
+        )
+        if args.sevenzip:
+            if not args.password:
+                logger.warning("WARNING: --password is required")
+                sys.exit(1)
+            success = run_archive_sftp(args.source, sftp_storage, "7z", password=args.password)
+        elif args.compression is not None:
+            success = run_archive_sftp(args.source, sftp_storage, "zip", compression_level=args.compression)
+        else:
+            main(source_dir=args.source, target_dir=args.sftp_path, storage=sftp_storage)
+            success = True
+        sys.exit(0 if success else 1)
+
     if args.sevenzip:
         logger.info("Initializing 7z encrypted backup...")
 
@@ -942,29 +1008,6 @@ Examples:
 
     if args.mirror:
         MIRROR_MODE = True
-
-    sftp_requested = any((args.sftp_host, args.sftp_username, args.sftp_key, args.sftp_path))
-    if sftp_requested:
-        if not all((args.sftp_host, args.sftp_username, args.sftp_key, args.sftp_path, args.source)):
-            logger.error("ERROR: SFTP requires --source, --sftp-host, --sftp-username, --sftp-key, and --sftp-path")
-            sys.exit(1)
-        try:
-            main(
-                source_dir=args.source,
-                target_dir=args.sftp_path,
-                storage=SFTPStorage(
-                    host=args.sftp_host,
-                    port=args.sftp_port,
-                    username=args.sftp_username,
-                    key_path=args.sftp_key,
-                    remote_root=args.sftp_path,
-                    known_hosts_path=args.sftp_known_hosts,
-                ),
-            )
-        except Exception as exc:
-            logger.error(f"SFTP backup failed: {exc}")
-            sys.exit(1)
-        sys.exit(0)
 
     # Interactive compression mode
     if args.compression:
