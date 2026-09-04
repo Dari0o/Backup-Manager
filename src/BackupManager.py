@@ -616,6 +616,7 @@ v {VERSION}
 def main(source_dir: Optional[str] = None, target_dir: Optional[str] = None,
          storage: Optional[Storage] = None) -> None:
     """Run a backup, using local storage unless another backend is supplied."""
+    print_logo()
     if storage is None and (source_dir is None or target_dir is None):
         source_dir, target_dir = get_directories_interactive()
     if target_dir is None:
@@ -626,9 +627,6 @@ def main(source_dir: Optional[str] = None, target_dir: Optional[str] = None,
 
 
 def _run_backup(source_dir: Optional[str], target_dir: str, storage: Storage) -> None:
-
-    print_logo()
-
     # If directories not provided as arguments, prompt interactively
     if source_dir is None or target_dir is None:
         source_dir, target_dir = get_directories_interactive()
