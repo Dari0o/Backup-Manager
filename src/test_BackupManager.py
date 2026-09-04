@@ -1,10 +1,17 @@
 import io
 import os
+import sys
 import zipfile
 from unittest.mock import patch, MagicMock
 
+import pytest
+
 import BackupManager as bm
 import compression as compression_module
+
+def is_headless():
+    """Check if running in a headless environment."""
+    return not os.environ.get("DISPLAY") and sys.platform != "win32" and sys.platform != "darwin"
 
 
 class FakeArchiveStorage:
@@ -403,6 +410,7 @@ def test_install_update_handles_empty_zip(tmp_path, monkeypatch):
 # GUI Tests
 # ----------------------------
 
+@pytest.mark.skipif(is_headless(), reason="No X11 display available")
 def test_gui_arguments_mapping():
     import argparse
     from unittest.mock import MagicMock
