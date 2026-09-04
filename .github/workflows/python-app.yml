@@ -34,6 +34,11 @@ jobs:
           pip install pytest tqdm prompt_toolkit requests paramiko
 
       - name: Run tests
+        if: runner.os == 'Linux'
+        run: xvfb-run -a pytest -q
+
+      - name: Run tests without virtual display
+        if: runner.os != 'Linux'
         run: pytest -q
 
 
@@ -60,4 +65,4 @@ jobs:
           flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
 
       - name: Run tests
-        run: pytest -q
+        run: xvfb-run -a pytest -q
