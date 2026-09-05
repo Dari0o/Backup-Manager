@@ -153,6 +153,10 @@ class BackupGuiApp:
         # Start queue checking loop
         self.root.after(100, self.process_ui_queue)
 
+        # Automatically check for updates on startup (same logic as console mode),
+        # without blocking the UI or popping up any dialogs.
+        self.check_for_updates_on_startup()
+
     def create_widgets(self):
         # Main padding frame
         main_frame = tk.Frame(self.root, bg=self.bg_color, padx=15, pady=15)
@@ -399,6 +403,18 @@ class BackupGuiApp:
             active_bg="#4a4a4a"
         )
         self.btn_update.pack(side=tk.LEFT)
+        # Hidden until the startup check confirms an update is available.
+        self.btn_update.pack_forget()
+
+        self.lbl_update_notice = tk.Label(
+            actions_frame,
+            text="",
+            bg=self.bg_color,
+            fg="#e7c06d",
+            font=("Segoe UI", 9)
+        )
+        self.lbl_update_notice.pack(side=tk.LEFT, padx=(8, 0))
+        self.lbl_update_notice.pack_forget()
 
         self.btn_start = self.create_flat_button(
             actions_frame, 
@@ -649,6 +665,27 @@ class BackupGuiApp:
             self.chk_show_pass.config(fg=self.fg_muted)
             self.lbl_pass.config(fg=self.fg_muted)
             self.lbl_zip_level.config(fg=self.fg_muted)
+
+    def check_for_updates_on_startup(self):
+        """Silently checks for updates on startup using the same logic as the
+        console version (BackupManager.check_for_update / compare_versions).
+        Does not block the UI and does not show any dialogs; it only decides
+        whether the 'Check for Updates' button and notice label are shown.
+        """
+        def task():
+            try:
+                release = BackupManager.check_for_update()
+                current = BackupManager.get_current_version()
+
+                if release and BackupManager.compare_versions(current, release['version']):
+                    ui_queue.put(("startup_update_check", release))
+                else:
+                    ui_queue.put(("startup_update_check", None))
+            except Exception as e:
+                ui_queue.put(("log", f"WARNING: Startup update check failed: {e}"))
+                ui_queue.put(("startup_update_check", None))
+
+        threading.Thread(target=task, daemon=True).start()
 
     def run_update_check(self):
         self.set_gui_state(False)
@@ -926,6 +963,19 @@ class BackupGuiApp:
                     else:
                         messagebox.showerror("Failed", "Backup task finished with errors. See logs.")
                         
+                elif event_type == "startup_update_check":
+                    if data:
+                        release_info = data
+                        self.lbl_update_notice.config(
+                            text=f"Update available: v{release_info['version']}"
+                        )
+                        self.btn_update.pack(side=tk.LEFT)
+                        self.lbl_update_notice.pack(side=tk.LEFT, padx=(8, 0))
+                        self.log_message(f"Update available: v{release_info['version']}")
+                    else:
+                        self.btn_update.pack_forget()
+                        self.lbl_update_notice.pack_forget()
+
                 elif event_type == "update_available":
                     self.set_gui_state(True)
                     self.lbl_status.config(text="Update Available", fg=self.fg_color)
