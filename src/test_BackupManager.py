@@ -7,7 +7,6 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 import BackupManager as bm
-import compression as compression_module
 
 def is_headless():
     """Check if running in a headless environment."""
@@ -140,27 +139,78 @@ def test_stat_file_success(mock_stat):
     assert result == ("dummy.txt", 123, 456)
 
 
-# ----------------------------
-# copy_file
-# ----------------------------
+def test_backup_relative_path_includes_source_folder():
+    assert bm.backup_relative_path(
+        os.path.join("source", "nested", "file.txt"),
+        "source",
+        "backup",
+    ) == "source/nested/file.txt"
 
-@patch("BackupManager.log", new_callable=MagicMock)
-@patch("os.makedirs", new_callable=MagicMock)
-@patch("shutil.copy2", new_callable=MagicMock)
-@patch("os.path.getsize", return_value=100)
-def test_copy_file(mock_size, mock_copy, mock_mkdir, mock_log):
-    progress = MagicMock()
 
-    bm.copy_file(
-        "src/file.txt",
-        "dst_base",
-        "src_base",
-        progress
-    )
+def test_backup_relative_path_uses_target_directly_when_names_match():
+    assert bm.backup_relative_path(
+        os.path.join("source", "nested", "file.txt"),
+        "source",
+        os.path.join("backups", "source"),
+    ) == "nested/file.txt"
 
-    mock_mkdir.assert_called_once()
-    mock_copy.assert_called_once()
-    progress.update.assert_called_once_with(100)
+
+@pytest.mark.parametrize("target_name, expected_parts", [
+    ("backup", ("source", "file.txt")),
+    ("source", ("file.txt",)),
+])
+def test_run_backup_uses_expected_source_folder_layout(tmp_path, target_name, expected_parts):
+    source_dir = tmp_path / "source"
+    target_dir = tmp_path / "destination" / target_name
+    source_dir.mkdir()
+    target_dir.mkdir(parents=True)
+    (source_dir / "file.txt").write_text("content", encoding="utf-8")
+
+    bm._run_backup(str(source_dir), str(target_dir), bm.LocalStorage(str(target_dir)))
+
+    assert (target_dir.joinpath(*expected_parts)).read_text(encoding="utf-8") == "content"
+
+
+def test_validate_backup_paths_rejects_target_inside_source(tmp_path):
+    source_dir = tmp_path / "source"
+    target_dir = source_dir / "backup"
+    source_dir.mkdir()
+
+    with pytest.raises(ValueError, match="inside the source"):
+        bm.validate_backup_paths(str(source_dir), str(target_dir), bm.LocalStorage(str(target_dir)))
+
+
+def test_safe_extract_zip_rejects_path_traversal(tmp_path):
+    archive_path = tmp_path / "update.zip"
+    extract_dir = tmp_path / "extract"
+    extract_dir.mkdir()
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        archive.writestr("../outside.txt", "unsafe")
+
+    with zipfile.ZipFile(archive_path) as archive:
+        with pytest.raises(ValueError, match="Unsafe update archive path"):
+            bm._safe_extract_zip(archive, str(extract_dir))
+
+    assert not (tmp_path / "outside.txt").exists()
+
+
+def test_run_console_processes_compression_level_zero(tmp_path):
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    args = type("Args", (), {
+        "ignore_excludes": False, "mirror": False, "sevenzip": False,
+        "password": None, "source": str(source_dir), "target": str(tmp_path / "backup.zip"),
+        "compression": 0, "update": False, "sftp_host": None,
+        "sftp_username": None, "sftp_key": None, "sftp_path": None,
+        "sftp_port": 22, "sftp_known_hosts": None,
+    })()
+
+    with patch.object(bm, "compress_to_zip", return_value=True) as compress:
+        with pytest.raises(SystemExit) as exit_info:
+            bm.run_console(args)
+
+    assert exit_info.value.code == 0
+    assert compress.call_args.args[2] == 0
 
 
 # ----------------------------
@@ -182,9 +232,9 @@ def test_compress_to_zip_uses_7z(tmp_path):
     output_dir = tmp_path / "out"
     output_dir.mkdir()
 
-    with patch("compression.subprocess.run") as mock_run:
+    with patch("subprocess.run") as mock_run:
         mock_run.return_value = MagicMock()
-        result = compression_module.compress_to_zip(
+        result = bm.compress_to_zip(
             str(source_dir),
             str(output_dir),
             compression_level=1,
@@ -209,9 +259,9 @@ def test_compress_to_zip_stores_wav_without_compression(tmp_path):
     output_dir = tmp_path / "out"
     output_dir.mkdir()
 
-    with patch("compression.subprocess.run") as mock_run:
+    with patch("subprocess.run") as mock_run:
         mock_run.return_value = MagicMock()
-        result = compression_module.compress_to_zip(
+        result = bm.compress_to_zip(
             str(source_dir),
             str(output_dir),
             compression_level=1,
@@ -241,8 +291,8 @@ def test_compress_to_zip_reports_real_7z_percentages(tmp_path):
             return 0
 
     seen = []
-    with patch("compression.subprocess.Popen", return_value=FakeProcess()):
-        result = compression_module.compress_to_zip(
+    with patch("subprocess.Popen", return_value=FakeProcess()):
+        result = bm.compress_to_zip(
             str(source_dir),
             str(output_dir),
             compression_level=1,
@@ -448,8 +498,11 @@ def test_gui_arguments_mapping():
 def test_gui_options_exclusivity():
     import tkinter as tk
     import BackupGui
-    
-    root = tk.Tk()
+
+    try:
+        root = tk.Tk()
+    except tk.TclError as error:
+        pytest.skip(f"Tk is not available in this environment: {error}")
     try:
         app = BackupGui.BackupGuiApp(root)
         

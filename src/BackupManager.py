@@ -1,4 +1,5 @@
 import os
+import posixpath
 import shutil
 import sys
 import argparse
@@ -22,7 +23,16 @@ except ImportError:
 try:
     from compression import compress_to_zip
 except ImportError:
-    compress_to_zip = None
+    compression_path = os.path.join(os.path.dirname(__file__), "compression.py")
+    compression_spec = importlib.util.spec_from_file_location(
+        "backup_manager_compression", compression_path
+    )
+    if compression_spec is None or compression_spec.loader is None:
+        compress_to_zip = None
+    else:
+        compression_module = importlib.util.module_from_spec(compression_spec)
+        compression_spec.loader.exec_module(compression_module)
+        compress_to_zip = compression_module.compress_to_zip
 
 from logger import setup_logger
 from storage import LocalStorage, Storage
@@ -258,6 +268,16 @@ def check_for_update() -> Optional[Dict[str, Any]]:
         return None
 
 
+def _safe_extract_zip(zip_ref: Any, destination: str) -> None:
+    """Extract a ZIP only when every member remains below destination."""
+    destination_real = os.path.realpath(destination)
+    for member in zip_ref.infolist():
+        member_path = os.path.realpath(os.path.join(destination, member.filename))
+        if os.path.commonpath((destination_real, member_path)) != destination_real:
+            raise ValueError(f"Unsafe update archive path: {member.filename}")
+    zip_ref.extractall(destination)
+
+
 def install_update(release_info: Dict[str, Any]) -> bool:
     """Installs a new release.
 
@@ -302,7 +322,7 @@ def install_update(release_info: Dict[str, Any]) -> bool:
         os.makedirs(extract_dir, exist_ok=True)
 
         with zipfile.ZipFile(zip_path, "r") as zip_ref:
-            zip_ref.extractall(extract_dir)
+            _safe_extract_zip(zip_ref, extract_dir)
 
         extracted_contents = os.listdir(extract_dir)
 
@@ -321,30 +341,8 @@ def install_update(release_info: Dict[str, Any]) -> bool:
         else:
             source_dir = extract_dir
 
-        # Remove old files and folders
-        for item in os.listdir(install_dir):
-
-            old_path = os.path.join(install_dir, item)
-
-            # Keep update files until cleanup
-            if old_path == zip_path or old_path == extract_dir:
-                continue
-
-            # Never delete the currently running python file
-            if os.path.abspath(old_path) == current_file:
-                continue
-
-            try:
-                if os.path.isdir(old_path) and not os.path.islink(old_path):
-                    shutil.rmtree(old_path, ignore_errors=True)
-
-                else:
-                    os.remove(old_path)
-
-            except OSError as e:
-                logger.error(f"Error removing old file {old_path}: {e}")
-
         # Copy new release files
+        copy_failed = False
         for item in os.listdir(source_dir):
 
             src = os.path.join(source_dir, item)
@@ -357,7 +355,32 @@ def install_update(release_info: Dict[str, Any]) -> bool:
                     shutil.copy2(src, dst)
 
             except OSError as e:
-                logger.warning(f"Skipping update file due to copy error: {src} -> {dst}: {e}")
+                logger.error(f"Update copy failed: {src} -> {dst}: {e}")
+                copy_failed = True
+
+        if copy_failed:
+            logger.error("Update aborted; existing installation was preserved")
+            shutil.rmtree(extract_dir, ignore_errors=True)
+            if os.path.exists(zip_path):
+                os.remove(zip_path)
+            return False
+
+        # Remove obsolete top-level entries only after all new files copied.
+        new_items = set(os.listdir(source_dir))
+        for item in os.listdir(install_dir):
+            old_path = os.path.join(install_dir, item)
+            if old_path in (zip_path, extract_dir) or item in new_items:
+                continue
+            if os.path.abspath(old_path) == current_file:
+                continue
+            try:
+                if os.path.isdir(old_path) and not os.path.islink(old_path):
+                    shutil.rmtree(old_path)
+                else:
+                    os.remove(old_path)
+            except OSError as e:
+                logger.error(f"Error removing obsolete update file {old_path}: {e}")
+                return False
 
         # Cleanup
         shutil.rmtree(extract_dir, ignore_errors=True)
@@ -372,31 +395,23 @@ def install_update(release_info: Dict[str, Any]) -> bool:
         logger.error(f"Update installation error: {e}")
         return False
 
-def copy_file(src: str, dst_base: str, src_base: str, progress: Any) -> bool:
-    """Copy a single file. Locked/inaccessible files are skipped without aborting the backup."""
+def backup_relative_path(src: str, src_base: str, target_base: str) -> str:
+    """Return the destination-relative path, including the source folder when needed."""
+    relative_path = os.path.relpath(src, src_base)
+    source_name = os.path.basename(os.path.normpath(src_base))
+    target_name = os.path.basename(os.path.normpath(target_base))
 
-    rel = os.path.relpath(src, src_base)
-    dst = os.path.join(dst_base, rel)
+    if os.path.normcase(source_name) == os.path.normcase(target_name):
+        return relative_path.replace(os.sep, "/")
 
-    try:
-        os.makedirs(os.path.dirname(dst), exist_ok=True)
-        shutil.copy2(src, dst)
-        progress.update(os.path.getsize(src))
-        return True
-
-    except (OSError, IOError, PermissionError, shutil.Error) as e:
-        # Never abort the whole backup because one file is locked or inaccessible.
-        logger.warning(f"Skipping file due to copy error: {src} -> {dst}: {e}")
-        return False
-
-    except Exception as e:
-        logger.warning(f"Skipping file due to unexpected copy error: {src} -> {dst}: {e}")
-        return False
+    return posixpath.join(source_name, relative_path.replace(os.sep, "/"))
 
 
-def copy_to_storage(src: str, src_base: str, storage: Storage, progress: Any) -> bool:
+def copy_to_storage(src: str, src_base: str, storage: Storage, progress: Any,
+                    target_base: Optional[str] = None) -> bool:
     """Upload one source file through the selected storage backend."""
-    rel = os.path.relpath(src, src_base)
+    rel = (backup_relative_path(src, src_base, target_base)
+           if target_base is not None else os.path.relpath(src, src_base))
     try:
         storage.upload_file(src, rel, progress)
         return True
@@ -441,7 +456,8 @@ def stat_file(path: str) -> Optional[Tuple[str, int, float]]:
 # ----------------------------
 # Scan source directory (generic)
 # ----------------------------
-def collect_files_multithread(base_dir: str, desc: str, as_index: bool = False) -> Tuple[Union[List[Tuple[str, int, float]], Dict[str, Tuple[int, float]]], int]:
+def collect_files_multithread(base_dir: str, desc: str, as_index: bool = False,
+                              scan_errors: Optional[List[str]] = None) -> Tuple[Union[List[Tuple[str, int, float]], Dict[str, Tuple[int, float]]], int]:
     """
     Collects file information from a directory using multithreading
 
@@ -459,31 +475,13 @@ def collect_files_multithread(base_dir: str, desc: str, as_index: bool = False) 
     scan_pbar = tqdm_.tqdm(
         desc=f"{desc} (scanning...)", unit=" dirs", position=0, leave=False)
 
-    def scan_dir(path):
-
-        try:
-
-            for entry in os.scandir(path):
-
-                if should_ignore(entry):
-                    continue
-
-                if entry.is_file(follow_symlinks=False):
-                    file_list.append(entry.path)
-
-                elif entry.is_dir(follow_symlinks=False):
-                    scan_pbar.update(1)
-                    scan_dir(entry.path)
-
-        except (PermissionError, OSError):
-            pass
-
-    # Parallelize directory scanning
+    # Directory traversal is intentionally serial; file stat calls below are parallel.
     dir_queue = [base_dir]
-    with ThreadPoolExecutor(max_workers=THREADS) as scan_executor:
-        while dir_queue:
-            try:
-                for entry in os.scandir(dir_queue.pop(0)):
+    while dir_queue:
+        current_dir = dir_queue.pop()
+        try:
+            with os.scandir(current_dir) as entries:
+                for entry in entries:
                     if should_ignore(entry):
                         continue
 
@@ -492,8 +490,11 @@ def collect_files_multithread(base_dir: str, desc: str, as_index: bool = False) 
                     elif entry.is_dir(follow_symlinks=False):
                         scan_pbar.update(1)
                         dir_queue.append(entry.path)
-            except (PermissionError, OSError):
-                pass
+        except (PermissionError, OSError) as exc:
+            message = f"Unable to scan {current_dir}: {exc}"
+            logger.warning(message)
+            if scan_errors is not None:
+                scan_errors.append(message)
 
     scan_pbar.close()
 
@@ -529,14 +530,32 @@ def collect_files_multithread(base_dir: str, desc: str, as_index: bool = False) 
     return results, total_size
 
 
-def scan_files_multithread(base: str, desc: str) -> Tuple[List[Tuple[str, int, float]], int]:
+def scan_files_multithread(base: str, desc: str,
+                           scan_errors: Optional[List[str]] = None) -> Tuple[List[Tuple[str, int, float]], int]:
     """Scans files and returns a list with absolute paths"""
-    return collect_files_multithread(base, desc, as_index=False)
+    return collect_files_multithread(base, desc, as_index=False, scan_errors=scan_errors)
 
 
-def load_target_index_multithread(target_dir: str, desc: str) -> Tuple[Dict[str, Tuple[int, float]], int]:
-    """Scans files and returns a dictionary with relative paths as keys"""
-    return collect_files_multithread(target_dir, desc, as_index=True)
+def validate_backup_paths(source_dir: str, target_dir: str, storage: Storage) -> None:
+    """Validate local backup paths before scanning or creating destination files."""
+    if not os.path.isdir(source_dir):
+        raise ValueError(f"Source folder does not exist or is not a directory: {source_dir}")
+
+    if not isinstance(storage, LocalStorage):
+        return
+
+    source_real = os.path.realpath(source_dir)
+    target_real = os.path.realpath(target_dir)
+    if os.path.exists(target_dir) and not os.path.isdir(target_dir):
+        raise ValueError(f"Target path is not a directory: {target_dir}")
+
+    try:
+        common = os.path.commonpath((source_real, target_real))
+    except ValueError:
+        common = ""
+
+    if common == source_real:
+        raise ValueError("Target folder must not be inside the source folder")
 
 
 # ----------------------------
@@ -588,7 +607,7 @@ def get_directories_interactive() -> Tuple[str, str]:
             
     except KeyboardInterrupt:
         logger.info("Aborted by user")
-        sys.exit(0)
+        sys.exit(130)
     except Exception as e:
         logger.error(f"Unexpected error: {e}")
         sys.exit(1)
@@ -647,15 +666,21 @@ def _run_backup(source_dir: Optional[str], target_dir: str, storage: Storage) ->
             input("Press Enter to exit...")
             sys.exit(1)
 
+    validate_backup_paths(source_dir, target_dir, storage)
+
     if isinstance(storage, LocalStorage):
         os.makedirs(target_dir, exist_ok=True)
 
     logger.info(f"Target folder set: {target_dir}")
     logger.info("=== Script started ===")
 
+    source_scan_errors: List[str] = []
     source_files, source_size = scan_files_multithread(
-        source_dir, "Scanning Source"
+        source_dir, "Scanning Source", source_scan_errors
     )
+
+    if source_scan_errors:
+        raise RuntimeError("Source scan incomplete; backup aborted")
 
     logger.info(f"Files found in source: {len(source_files)}")
     logger.info("Please wait, scanning target directory...")
@@ -668,7 +693,7 @@ def _run_backup(source_dir: Optional[str], target_dir: str, storage: Storage) ->
         # Build set of relative paths present in source
         source_rels = set()
         for src, _, _ in source_files:
-            source_rels.add(os.path.relpath(src, source_dir))
+            source_rels.add(backup_relative_path(src, source_dir, target_dir))
 
         to_delete = [rel for rel in target_index.keys()
                      if rel not in source_rels]
@@ -685,7 +710,7 @@ def _run_backup(source_dir: Optional[str], target_dir: str, storage: Storage) ->
             if answer not in ("y", "yes"):
                 logger.info("Mirror mode: deletion aborted by user")
                 input("Press Enter to exit...")
-                sys.exit(0)
+                sys.exit(1)
             else:
                 logger.info(f"Mirror mode: deleting {len(to_delete)} items from target")
 
@@ -717,7 +742,7 @@ def _run_backup(source_dir: Optional[str], target_dir: str, storage: Storage) ->
 
         for src, size, mtime in source_files:
 
-            rel = os.path.relpath(src, source_dir)
+            rel = backup_relative_path(src, source_dir, target_dir)
 
             target_info = target_index.get(rel)
 
@@ -755,12 +780,12 @@ def _run_backup(source_dir: Optional[str], target_dir: str, storage: Storage) ->
                         logger.warning("Copy process cancelled")
                         skipped_files += len(files_to_copy) - file_index
                         break
-                    if not copy_to_storage(path, source_dir, storage, pbar):
+                    if not copy_to_storage(path, source_dir, storage, pbar, target_dir):
                         skipped_files += 1
             else:
                 with ThreadPoolExecutor(max_workers=THREADS) as executor:
                     futures = [
-                        executor.submit(copy_to_storage, path, source_dir, storage, pbar)
+                        executor.submit(copy_to_storage, path, source_dir, storage, pbar, target_dir)
                         for path, size in files_to_copy
                     ]
                     for f in as_completed(futures):
@@ -830,28 +855,28 @@ def run_console(args: argparse.Namespace) -> None:
     if args.mirror and (args.sevenzip or args.password):
         logger.error("ERROR: Mirror mode is not compatible with 7z encrypted backup")
         input("Press Enter to exit...")
-        sys.exit(0)
+        sys.exit(1)
 
     if args.mirror and IGNORE_EXCLUDE_LIST:
-       logger.error("ERROR: Mirror mode is not compatible with the ignore-exclude-list argument")
-       input("Press Enter to exit...")
-       sys.exit(0)
+        logger.error("ERROR: Mirror mode is not compatible with the ignore-exclude-list argument")
+        input("Press Enter to exit...")
+        sys.exit(1)
 
-    if args.update and (args.sevenzip or args.password or args.source or args.target or args.mirror or args.compression or args.ignore_excludes):
+    if args.update and (args.sevenzip or args.password or args.source or args.target or args.mirror or args.compression is not None or args.ignore_excludes):
         logger.error("ERROR: Update mode cannot be combined with other options.")
         input("Press Enter to exit...")
-        sys.exit(0)
+        sys.exit(1)
 
     # Check if compression mode is enabled
     compression_level = args.compression
     if compression_level is not None:
         if not (0 <= compression_level <= 9):
             print(f"ERROR: Compression level must be between 0 and 9, got: {compression_level}")
-            sys.exit(0)
+            sys.exit(1)
         
         if not compress_to_zip:
             print("ERROR: compression.py could not be imported")
-            sys.exit(0)
+            sys.exit(1)
         
     sftp_requested = any((args.sftp_host, args.sftp_username, args.sftp_key, args.sftp_path))
     if sftp_requested:
@@ -893,17 +918,14 @@ def run_console(args: argparse.Namespace) -> None:
             logger.warning("WARNING: --target is required")
             sys.exit(1)
 
-        # target is folder → not file
-        target_dir = args.target or os.getcwd()
-
-        os.makedirs(target_dir, exist_ok=True)
-
-        timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
-
-        output_file = os.path.join(
-            target_dir,
-            f"backup_{timestamp}.7z"
-        )
+        target_path = args.target
+        if target_path.lower().endswith(".7z"):
+            output_file = target_path
+            os.makedirs(os.path.dirname(os.path.abspath(output_file)), exist_ok=True)
+        else:
+            os.makedirs(target_path, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+            output_file = os.path.join(target_path, f"backup_{timestamp}.7z")
 
         success = encrypt_directory_7z(
             source_dir=args.source,
@@ -917,13 +939,12 @@ def run_console(args: argparse.Namespace) -> None:
         else:
             logger.error("Backup failed")
 
-        sys.exit(0)
+        sys.exit(0 if success else 1)
 
-    if args.mirror:
-        MIRROR_MODE = True
+    MIRROR_MODE = args.mirror
 
     # Interactive compression mode
-    if args.compression:
+    if args.compression is not None:
         
         print_logo()
             
@@ -961,20 +982,21 @@ def run_console(args: argparse.Namespace) -> None:
         
         # Start compression
         try:
-            compress_to_zip(source_dir, output_zip, compression_level, log_func=logger.info, should_ignore_func=should_ignore, num_threads=THREADS)
+            success = compress_to_zip(source_dir, output_zip, compression_level, log_func=logger.info, should_ignore_func=should_ignore, num_threads=THREADS)
         except KeyboardInterrupt:
             logger.info("Compression aborted by user")
             if os.path.exists(output_zip):
                 try:
                     os.remove(output_zip)
                     logger.info(f"Incomplete ZIP file deleted: {output_zip}")
-                except:
-                    pass
+                except OSError as cleanup_error:
+                    logger.warning(f"Unable to remove incomplete ZIP file: {cleanup_error}")
+            sys.exit(130)
         except Exception as e:
             logger.error(f"Compression error: {e}")
             sys.exit(1)
         
-        sys.exit(0)
+        sys.exit(0 if success else 1)
 
     # Check if update mode is enabled
     is_update = args.update
@@ -982,7 +1004,9 @@ def run_console(args: argparse.Namespace) -> None:
     if is_update:
 
         print("Checking dependencies for this system...")
-        ensure_dependencies()
+        if not ensure_dependencies():
+            logger.error("Dependency setup failed; update aborted")
+            sys.exit(1)
 
         # Update mode: check for updates and install them
         print("Checking for updates...")
@@ -995,7 +1019,8 @@ def run_console(args: argparse.Namespace) -> None:
 
             print(f"Update available: {release_info['version']}")
             print("Installing update...")
-            install_update(release_info)
+            if not install_update(release_info):
+                sys.exit(1)
 
         else:
             print("No new updates available.")
@@ -1019,14 +1044,13 @@ def run_console(args: argparse.Namespace) -> None:
             main(source_dir=args.source, target_dir=args.target)
 
         except KeyboardInterrupt:
-
             logger.info("Aborted by user")
+            sys.exit(130)
 
         except Exception as e:
-
             logger.error(f"Unexpected error: {e}")
+            sys.exit(1)
 
-        input("Press Enter to exit...")
         sys.exit(0)
 
 
