@@ -68,7 +68,12 @@ class LocalStorage(Storage):
 
     def index(self) -> Dict[str, Tuple[int, float]]:
         from BackupManager import collect_files_multithread
-        result, _ = collect_files_multithread(self.root, "Scanning Target", as_index=True)
+        scan_errors = []
+        result, _ = collect_files_multithread(
+            self.root, "Scanning Target", as_index=True, scan_errors=scan_errors
+        )
+        if scan_errors:
+            raise StorageError("Target scan incomplete")
         return result
 
     def upload_file(self, local_path: str, relative_path: str, progress: Any) -> None:

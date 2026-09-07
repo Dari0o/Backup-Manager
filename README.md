@@ -10,7 +10,7 @@ The program intelligently compares files based on size and modification date, an
 
 ## Features
 
-- Multithreaded file scanning
+- Parallel file metadata processing
 - Fast parallel copying
 - SFTP backups using SSH private-key authentication
 - Intelligent file comparison
@@ -159,6 +159,9 @@ Features:
 - Uses 7-Zip for maximum compatibility
 - Supports large backups
 - Fast multithreaded compression
+
+The `--target` value may be a concrete `.7z` file path. If it is a directory,
+the program creates a timestamped archive inside that directory.
 
 ---
 
