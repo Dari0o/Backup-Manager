@@ -66,7 +66,13 @@ class BackupGuiApp:
         self.root = root
         self.args = args
         self.root.title(f"Backup Manager v{BackupManager.VERSION}")
-        self.root.geometry("800x650")
+        try:
+            self.window_icon = tk.PhotoImage(file="icon.png")
+        except tk.TclError:
+            pass
+        else:
+            self.root.iconphoto(True, self.window_icon)
+        self.root.geometry("900x750")
         self.root.minsize(650, 550)
 
         # Style colors
@@ -111,6 +117,7 @@ class BackupGuiApp:
         self.is_running = False
         self.progress_max = 0
         self.progress_current = 0
+        self.available_release = None
 
         # Pre-populate variables from CLI arguments if present
         if args:
@@ -152,6 +159,7 @@ class BackupGuiApp:
 
         # Start queue checking loop
         self.root.after(100, self.process_ui_queue)
+        self.check_for_updates_on_startup()
 
     def create_widgets(self):
         # Main padding frame
@@ -393,12 +401,11 @@ class BackupGuiApp:
 
         self.btn_update = self.create_flat_button(
             actions_frame, 
-            "Check for Updates", 
-            self.run_update_check, 
+            "Install Update", 
+            self.install_available_update, 
             bg="#3a3a3a", 
             active_bg="#4a4a4a"
         )
-        self.btn_update.pack(side=tk.LEFT)
 
         self.btn_start = self.create_flat_button(
             actions_frame, 
@@ -650,14 +657,12 @@ class BackupGuiApp:
             self.lbl_pass.config(fg=self.fg_muted)
             self.lbl_zip_level.config(fg=self.fg_muted)
 
-    def run_update_check(self):
-        self.set_gui_state(False)
+    def check_for_updates_on_startup(self):
         self.lbl_status.config(text="Checking for updates...", fg=self.fg_color)
-        self.log_message("=== Checking dependencies & updates ===")
+        self.log_message("=== Checking for updates ===")
         
         def task():
             try:
-                # Run check
                 release = BackupManager.check_for_update()
                 current = BackupManager.get_current_version()
                 
@@ -666,10 +671,24 @@ class BackupGuiApp:
                 else:
                     ui_queue.put(("update_none", {}))
             except Exception as e:
-                ui_queue.put(("log", f"ERROR: Update check failed: {e}"))
-                ui_queue.put(("update_done", {}))
+                ui_queue.put(("update_check_failed", str(e)))
 
         threading.Thread(target=task, daemon=False).start()
+
+    def install_available_update(self):
+        if not self.available_release or self.is_running:
+            return
+
+        release_info = self.available_release
+        self.set_gui_state(False)
+        self.lbl_status.config(text="Updating...", fg=self.fg_color)
+        self.log_message(f"Starting update installation for v{release_info['version']}...")
+
+        def update_task():
+            success = BackupManager.install_update(release_info)
+            ui_queue.put(("update_done", success))
+
+        threading.Thread(target=update_task, daemon=False).start()
 
     def start_backup_process(self):
         source = self.source_var.get().strip()
@@ -928,40 +947,27 @@ class BackupGuiApp:
                         
                 elif event_type == "update_available":
                     self.set_gui_state(True)
+                    self.available_release = data
                     self.lbl_status.config(text="Update Available", fg=self.fg_color)
-                    release_info = data
-                    self.log_message(f"Update available: {release_info['version']}")
-                    
-                    ans = messagebox.askyesno(
-                        "Update Available",
-                        f"A new version v{release_info['version']} is available.\n\n"
-                        f"Release Name: {release_info['release_name']}\n\n"
-                        f"Do you want to download and install this update?"
-                    )
-                    
-                    if ans:
-                        self.set_gui_state(False)
-                        self.lbl_status.config(text="Updating...", fg=self.fg_color)
-                        self.log_message("Starting update download and installation...")
-                        
-                        def update_task():
-                            success = BackupManager.install_update(release_info)
-                            ui_queue.put(("update_done", success))
-                        
-                        threading.Thread(target=update_task, daemon=False).start()
-                    else:
-                        self.lbl_status.config(text="Ready", fg=self.fg_color)
+                    self.btn_update.pack(side=tk.LEFT)
+                    self.log_message(f"Update available: {data['version']}")
                         
                 elif event_type == "update_none":
-                    self.set_gui_state(True)
+                    self.available_release = None
+                    self.btn_update.pack_forget()
                     self.lbl_status.config(text="Ready", fg=self.fg_color)
-                    self.log_message("All dependencies are up to date. No updates available.")
-                    messagebox.showinfo("Update Check", "Your Backup Manager is up to date!")
+                    self.log_message("No updates available.")
+
+                elif event_type == "update_check_failed":
+                    self.lbl_status.config(text="Ready", fg=self.fg_color)
+                    self.log_message(f"ERROR: Update check failed: {data}")
                     
                 elif event_type == "update_done":
                     self.set_gui_state(True)
                     self.lbl_status.config(text="Ready", fg=self.fg_color)
                     if data:
+                        self.available_release = None
+                        self.btn_update.pack_forget()
                         self.log_message("Update completed successfully! Please restart the program.")
                         messagebox.showinfo("Updated", "Update installed successfully!\nPlease restart the application.")
                     else:
