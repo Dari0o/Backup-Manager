@@ -55,7 +55,7 @@ def should_ignore(entry) -> bool:
 # Global Variables
 # ----------------------------
 THREADS = 32
-VERSION = "1.1.5"  # Current version
+VERSION = "2.0.0"  # Current version
 IGNORE_EXCLUDE_LIST = False #for -i argument
 MIRROR_MODE = False #for --mirror argument
 

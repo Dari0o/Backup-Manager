@@ -232,7 +232,6 @@ This makes the backup very fast, especially for large folders.
 
 ## Planned Features
 
-- GUI version
 - Installer
 - Backup profiles
 - Scheduled backups
