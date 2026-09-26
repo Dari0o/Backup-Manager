@@ -1,25 +1,27 @@
-[![made-with-python](https://img.shields.io/badge/Made%20with-Python-1f425f.svg)](https://www.python.org/) [![MIT license](https://img.shields.io/badge/License-MIT-blue.svg)](https://lbesson.mit-license.org/) [![Python application](https://github.com/Dari0o/Backup-Manager/actions/workflows/python-app.yml/badge.svg)](https://github.com/Dari0o/Backup-Manager/actions/workflows/python-app.yml) ![GitHub contributors](https://img.shields.io/github/contributors/Dari0o/Backup-Manager)
+[![made-with-python](https://img.shields.io/badge/Made%20with-Python-1f425f.svg)](https://www.python.org/)
+[![MIT license](https://img.shields.io/badge/License-MIT-blue.svg)](https://lbesson.mit-license.org/)
+[![Python application](https://github.com/Dari0o/Backup-Manager/actions/workflows/python-app.yml/badge.svg)](https://github.com/Dari0o/Backup-Manager/actions/workflows/python-app.yml)
+![GitHub contributors](https://img.shields.io/github/contributors/Dari0o/Backup-Manager)
 
 # Backup Manager
 
-A fast and multithreaded backup tool.
+A fast and multithreaded backup tool for local folders, NAS/SMB shares and SFTP servers.
 
-The program intelligently compares files based on size and modification date, and copies only new or changed files.
+The program intelligently compares files based on size and modification date and copies only new or changed files.
 
 ---
 
 ## Features
 
-- Parallel file metadata processing
-- Fast parallel copying
-- SFTP backups using SSH private-key authentication
+- Fast multithreaded scanning and copying
 - Intelligent file comparison
-- Easy CLI usage for automation
-- Mirror Mode (synchronization)
-- Fast ZIP compression with adjustable compression level using 7-Zip
-- Optional AES-256 encrypted 7z archives
+- Local, NAS/SMB and SFTP backups
+- Mirror mode
+- ZIP compression with adjustable compression levels
+- AES-256 encrypted 7z archives
+- SSH key authentication and host verification
+- CLI and GUI
 - GitHub update system
-- Optimized for NAS / SMB shares
 
 ---
 
@@ -30,111 +32,104 @@ The program intelligently compares files based on size and modification date, an
 - Python 3.10+
 - 7-Zip (required for compression and encrypted 7z archives)
 
+Install the required Python packages:
 
-in your terminal run:
-
-```bash
-python -m pip install -r requirements.txt
-```
+    python -m pip install -r requirements.txt
 
 ---
 
 ## Usage
 
-### Standard run (interactive mode)
+### Standard / Interactive Mode
 
-```bash
-python BackupManager.py
-```
+    python BackupManager.py
 
 ### GUI Mode
 
-```bash
-python BackupManager.py -gui
-```
+    python BackupManager.py -gui
+
+### Examples
+
+    python BackupManager.py --source D:\Data --target \\nas\backup
+
+    python BackupManager.py --source D:\Data --target \\nas\backup --mirror
+
+    python BackupManager.py --source D:\Data --target \\nas\backup -i
+
+    python BackupManager.py --source D:\Data --target \\nas\backup -c 6
+
+    python BackupManager.py -c 6
+
+    python BackupManager.py --sevenzip --password MyPassword --source D:\Data --target D:\Backup.7z
+
+    python BackupManager.py --update
 
 ---
 
 ## CLI Arguments
 
-You can also run the tool with arguments:
+| Argument | Description |
+|---|---|
+| `--source SOURCE` | Source directory |
+| `--target TARGET` | Target directory or archive |
+| `-c, --compression LEVEL` | ZIP compression level (`0-9`) |
+| `--mirror` | Mirror source to target and delete obsolete files |
+| `--sevenzip` | Create an encrypted 7z archive |
+| `--password PASSWORD` | Password for 7z encryption |
+| `--update` | Check for and install updates |
+| `-i` | Ignore the exclude list |
+| `--sftp-host HOST` | SFTP server hostname |
+| `--sftp-port PORT` | SFTP port (default: `22`) |
+| `--sftp-username USER` | SFTP username |
+| `--sftp-key PATH` | Local SSH private key |
+| `--sftp-path PATH` | Remote backup root |
+| `--sftp-known-hosts PATH` | SSH known-hosts file |
 
-```bash
-python BackupManager.py --source D:\Data --target \\nas\backup
-python BackupManager.py --source D:\Data --target \\nas\backup --mirror
-python BackupManager.py --source D:\Data --target \\nas\backup -i
-python BackupManager.py --source D:\Data --target \\nas\backup -c 6
-python BackupManager.py -c 6
-python BackupManager.py --encrypt --source D:\Data --target \\nas\backup
-python BackupManager.py --sevenzip --password MyPassword --source D:\Data --target \\nas\backup
-python BackupManager.py --update
-```
+---
 
-### SFTP backups
+## SFTP Backups
 
-Use an SSH private key and an explicit remote root. The key path is read locally and
-never written to logs or configuration:
+SFTP backups use SSH private-key authentication and an explicit remote root.
 
-```bash
-python BackupManager.py --source D:\Data --sftp-host 192.168.2.21 --sftp-port 22 --sftp-username backup --sftp-key C:\Users\me\.ssh\id_ed25519 --sftp-path /backups/my-backup
-```
+    python BackupManager.py --source D:\Data --sftp-host 192.168.2.21 --sftp-port 22 --sftp-username backup --sftp-key C:\Users\me\.ssh\id_ed25519 --sftp-path /backups/my-backup
 
-Before connecting, add the Raspberry Pi host key to the default
-`~/.ssh/known_hosts` file, for example with `ssh-keyscan`. Unknown or changed
-host keys are rejected. Use `--sftp-known-hosts PATH` when a different file is needed.
+The SSH private key is read locally and never written to logs or configuration.
 
-The GUI provides the same fields after selecting `SFTP` as the destination. For
-SFTP archive backups, ZIP and 7z files are created temporarily and uploaded
-under the remote root; the temporary local files are removed afterward.
+Before connecting, add the server host key to the default `~/.ssh/known_hosts` file, for example with `ssh-keyscan`.
 
-### Arguments
+Unknown or changed host keys are rejected.
 
-| Argument              | Description                                                                                       |
-| --------------------- | ------------------------------------------------------------------------------------------------- |
-| `--source SOURCE`     | Source directory path                                                                             |
-| `--target TARGET`     | Target directory path                                                                             |
-| `-c, --compression`   | Enable ZIP compression (0-9). `0` = no compression (fastest), `9` = maximum compression (slowest) |
-| `--mirror`            | Enable mirror mode (delete files in target that no longer exist in source)                        |
-| `--sevenzip`          | Create an encrypted 7z archive                                                                    |
-| `--password PASSWORD` | Password used for 7z encryption                                                                   |
-| `--update`            | Check for and install updates                                                                     |
-| `-i`                  | Ignore the exclude list and copy all files                                                        |
-| `--sftp-host HOST`    | SFTP server hostname                                                                              |
-| `--sftp-port PORT`    | SFTP server port (default: 22)                                                                    |
-| `--sftp-username USER`| SFTP username                                                                                     |
-| `--sftp-key PATH`     | Local SSH private key path                                                                        |
-| `--sftp-path PATH`    | Remote backup root path                                                                           |
-| `--sftp-known-hosts PATH` | SSH known-hosts file used to verify the server identity                                        |
+Use `--sftp-known-hosts PATH` when a different known-hosts file is required.
+
+The GUI provides the same fields after selecting `SFTP` as the destination.
+
+For SFTP archive backups, ZIP and 7z files are created temporarily, uploaded under the remote root and removed locally afterward.
 
 ---
 
 ## Update System
 
-Install a new version:
+Install the latest GitHub release with:
 
-```bash
-python BackupManager.py --update
-```
+    python BackupManager.py --update
+Or press the 'Install Update' button in the gui version.
+The tool then downloads and installs the latest release and required dependencies.
 
-The tool then downloads and installs the latest GitHub release and all requirements.
+
 
 ---
 
 ## Compression
 
-Create compressed ZIP backups with adjustable compression levels using 7-Zip.
+ZIP compression uses 7-Zip and supports levels `0-9`.
 
-### Compression Levels
+- `0` — No compression / fastest
+- `3` — Balanced speed and compression
+- `9` — Maximum compression / slowest
 
-- `0` → No compression (fastest)
-- `3` → Standard (balanced speed & compression)
-- `9` → Maximum compression (slowest)
+Example:
 
-### With explicit paths
-
-```bash
-python BackupManager.py --source D:\Data --target D:\backup.zip -c 6
-```
+    python BackupManager.py --source D:\Data --target D:\backup.zip -c 6
 
 The compression process displays:
 
@@ -146,87 +141,44 @@ The compression process displays:
 
 ## Encryption
 
-Create a password-protected AES-256 encrypted 7z archive.
+Create a password-protected AES-256 encrypted 7z archive:
 
-```bash
-python BackupManager.py --sevenzip --password MySecurePassword --source D:\Data --target D:\Backup.7z
-```
+    python BackupManager.py --sevenzip --password MySecurePassword --source D:\Data --target D:\Backup.7z
 
-Features:
+The encryption system provides:
 
 - AES-256 encryption
-- Password-protected archive
-- Uses 7-Zip for maximum compatibility
-- Supports large backups
-- Fast multithreaded compression
+- Password-protected archives
+- 7-Zip compatibility
+- Support for large backups
+- Multithreaded compression
 
-The `--target` value may be a concrete `.7z` file path. If it is a directory,
-the program creates a timestamped archive inside that directory.
+The `--target` value can be a specific `.7z` file. If a directory is specified, a timestamped archive is created inside it.
 
 ---
 
 ## Mirror Mode
 
-Mirror Mode keeps the destination folder an exact copy of the source folder.
+Mirror Mode keeps the destination synchronized with the source.
 
-In addition to copying new and updated files, it also removes files and directories from the destination that no longer exist in the source.
+New and changed files are copied, while files and directories that no longer exist in the source are removed from the destination.
 
-This is useful for maintaining a synchronized backup without obsolete files.
+    python BackupManager.py --source D:\Data --target D:\backup --mirror
 
-```bash
-python BackupManager.py --mirror
-```
-
-### Example
-
-Source:
-
-```text
-Documents/
-├── Report.pdf
-└── Photo.jpg
-```
-
-Target before Mirror-Mode backup:
-
-```text
-Documents/
-├── Report.pdf
-├── Photo.jpg
-└── OldFile.txt
-```
-
-Target after Mirror-Mode:
-
-```text
-Documents/
-├── Report.pdf
-└── Photo.jpg
-```
-
-`OldFile.txt` is automatically deleted because it no longer exists in the source directory.
-
-> **Warning**
->
-> Mirror Mode permanently deletes files from the destination that are not present in the source. Use this mode with caution.
+> **Warning:** Mirror Mode permanently deletes files from the destination that are not present in the source. Use with caution.
 
 ---
 
-## How does the backup work?
+## How the Backup Works
 
-The program scans:
-
-- Source files
-- Destination files
-
-It then compares:
+The program scans the source and destination and compares:
 
 - File size
 - Modification time (`mtime`)
 
-Only changed files are copied.
+Only new or changed files are copied.
 
-This makes the backup very fast, especially for large folders.
+This makes backups fast, especially for large folders.
 
 ---
 
