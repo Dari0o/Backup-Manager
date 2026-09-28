@@ -22,3 +22,5 @@ venv.bak/
 
 #log
 *.log
+# Backup Manager runtime scheduler data
+src/schedules.json
