@@ -12,6 +12,7 @@ from tkinter import ttk  # Kept only for progressbar
 
 from logger import setup_logger, set_gui_log_handler
 from storage import SFTPStorage
+from scheduler_gui import open_scheduler_window
 
 logger = setup_logger(__name__)
 
@@ -406,6 +407,15 @@ class BackupGuiApp:
             bg="#3a3a3a", 
             active_bg="#4a4a4a"
         )
+
+        self.btn_schedule = self.create_flat_button(
+            actions_frame,
+            "Scheduled Backups",
+            lambda: open_scheduler_window(self.root),
+            bg="#3a3a3a",
+            active_bg="#4a4a4a"
+        )
+        self.btn_schedule.pack(side=tk.RIGHT, padx=(0, 8))
 
         self.btn_start = self.create_flat_button(
             actions_frame, 
