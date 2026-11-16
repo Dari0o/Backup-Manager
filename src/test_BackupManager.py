@@ -508,6 +508,12 @@ def test_install_update_handles_empty_zip(tmp_path, monkeypatch):
 # GUI Tests
 # ----------------------------
 
+def test_gui_uses_backup_manager_compressor():
+    import BackupGui
+
+    assert BackupGui.compress_to_zip is bm.compress_to_zip
+
+
 @pytest.mark.skipif(is_headless(), reason="No X11 display available")
 def test_gui_arguments_mapping():
     import argparse

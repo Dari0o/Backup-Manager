@@ -19,10 +19,7 @@ logger = setup_logger(__name__)
 import BackupManager
 import crypto_utils
 import scheduler
-try:
-    from compression import compress_to_zip
-except ImportError:
-    compress_to_zip = None
+compress_to_zip = BackupManager.compress_to_zip
 
 # Thread-safe queue for UI communication
 ui_queue = queue.Queue()
@@ -1114,7 +1111,12 @@ class BackupGuiApp:
                 ui_queue.put(("log", f"Archive file: {target}"))
                 
                 if not compress_to_zip:
-                    ui_queue.put(("log", "ERROR: compression.py could not be loaded"))
+                    error_message = (
+                        "ZIP compression is unavailable: BackupManager could not load "
+                        "the compression function."
+                    )
+                    logger.error(error_message)
+                    ui_queue.put(("log", f"ERROR: {error_message}"))
                 else:
                     ui_queue.put(("progress_init", {"total": 0, "desc": "7z Compressing", "indeterminate": True}))
 
