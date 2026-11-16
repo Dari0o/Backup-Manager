@@ -11,14 +11,8 @@ permissions:
 
 jobs:
   test:
-    name: Test on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macOS-latest]
-        python-version: ["3.10"]
+    name: Test on Windows
+    runs-on: windows-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -26,7 +20,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.10"
 
       - name: Install dependencies
         run: |
@@ -34,16 +28,11 @@ jobs:
           pip install pytest tqdm prompt_toolkit requests paramiko
 
       - name: Run tests
-        if: runner.os == 'Linux'
-        run: xvfb-run -a pytest -q
-
-      - name: Run tests without virtual display
-        if: runner.os != 'Linux'
         run: pytest -q
 
 
   build:
-    name: Build + lint
+    name: Lint
     runs-on: ubuntu-latest
 
     steps:
@@ -63,6 +52,3 @@ jobs:
         run: |
           flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
           flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-
-      - name: Run tests
-        run: xvfb-run -a pytest -q

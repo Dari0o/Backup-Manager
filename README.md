@@ -32,6 +32,7 @@ The program intelligently compares files based on size and modification date and
 
 - Python 3.10+
 - 7-Zip (required for compression and encrypted 7z archives)
+- Windows is required for scheduled backups.
 
 Install the required Python packages:
 
@@ -114,9 +115,18 @@ The tool then downloads and installs the latest release and required dependencie
 
 ## Scheduled Backups (Windows)
 
-In the GUI, open **Scheduled Backups...** to view all schedules, add a backup using the settings selected in the main window, or delete a selected schedule. Each schedule has its own Windows Task Scheduler entry and runs independently of the GUI. For a visible console window, the Windows user must be logged in when the task runs. Monthly schedules run on the first day of the month; for example, every 3 months runs on the first day every third month.
+Scheduled backups are managed from the GUI:
 
-The tasks are named **Backup Manager Scheduled Backup** followed by a unique identifier in Task Scheduler Library. Their output and diagnostic logs are written to `%LOCALAPPDATA%\BackupManager\logs\backup_manager.log`. Scheduled 7z passwords are protected for the current Windows user using Windows Data Protection; tasks must run under that same user account.
+1. Select the source, destination, and backup options in the main window. These settings are saved with the schedule; later changes in the main window do not change an existing schedule.
+2. Click **Scheduled Backups...** to open the schedule manager.
+3. Choose an interval in days or months and a time in 24-hour `HH:MM` format, then click **Add Current Backup Settings**.
+4. To remove a schedule, select it in the list and click **Delete Selected**.
+
+Each schedule has its own Windows Task Scheduler entry, named **Backup Manager Scheduled Backup** followed by a unique identifier. Backups run independently of the main application. Monthly intervals run on the first day of the month (for example, every 3 months runs on the first day every third month).
+
+Tasks are configured for the current interactive Windows user. The user must be logged in for the task to run, and the console window is visible only in that user's active session. Scheduled output and diagnostic logs are written to `%LOCALAPPDATA%\BackupManager\logs\backup_manager.log`. Check the task's **Last Run Result** in Task Scheduler if a run fails; the log contains application-level details.
+
+Scheduled 7z passwords are protected with Windows Data Protection for the current Windows user. The scheduled task must run as that same user. Older Backup Manager tasks are updated to the current launch format when the GUI starts.
 
 
 
