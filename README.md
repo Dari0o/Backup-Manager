@@ -32,11 +32,12 @@ The program intelligently compares files based on size and modification date and
 
 - Python 3.10+
 - 7-Zip (required for compression and encrypted 7z archives)
-- Windows is required for scheduled backups.
+- Windows 
 
 Install the required Python packages:
 
     python -m pip install -r requirements.txt
+
 
 ---
 

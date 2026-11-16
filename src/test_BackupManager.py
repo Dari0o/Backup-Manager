@@ -1,6 +1,5 @@
 import io
 import os
-import sys
 import zipfile
 from unittest.mock import patch, MagicMock
 
@@ -10,7 +9,7 @@ import BackupManager as bm
 
 def is_headless():
     """Check if running in a headless environment."""
-    return not os.environ.get("DISPLAY") and sys.platform != "win32" and sys.platform != "darwin"
+    return not os.environ.get("DISPLAY") and os.name != "nt"
 
 
 class FakeArchiveStorage:
@@ -48,6 +47,48 @@ def test_compare_versions_older():
 
 def test_compare_versions_equal():
     assert bm.compare_versions("1.0.0", "1.0.0") is False
+
+
+# ----------------------------
+# Windows dependency setup
+# ----------------------------
+
+def test_detect_environment_reports_windows(monkeypatch):
+    monkeypatch.setattr(bm.sys, "platform", "win32")
+
+    assert bm.detect_environment() == {"os": "windows"}
+
+
+@pytest.mark.parametrize("platform", ["linux", "darwin"])
+def test_detect_environment_marks_non_windows_unsupported(monkeypatch, platform):
+    monkeypatch.setattr(bm.sys, "platform", platform)
+
+    assert bm.detect_environment() == {"os": "unsupported"}
+
+
+def test_dependency_install_commands_are_windows_only():
+    commands = bm.get_dependency_install_commands({"os": "windows"})
+
+    assert commands[0][0] == "winget"
+    assert commands[1][1:3] == ["-m", "pip"]
+    with pytest.raises(OSError, match="only on Windows"):
+        bm.get_dependency_install_commands({"os": "linux"})
+    with pytest.raises(OSError, match="only on Windows"):
+        bm.get_dependency_install_commands({"os": "macos"})
+
+
+@pytest.mark.parametrize("platform", ["linux", "darwin"])
+def test_install_update_is_disabled_on_non_windows(monkeypatch, platform):
+    monkeypatch.setattr(bm.sys, "platform", platform)
+
+    assert bm.install_update({"version": "2.0.1", "download_url": "https://example.invalid/release.zip"}) is False
+
+
+@pytest.mark.parametrize("platform", ["linux", "darwin"])
+def test_ensure_dependencies_stops_on_non_windows(monkeypatch, platform):
+    monkeypatch.setattr(bm.sys, "platform", platform)
+
+    assert bm.ensure_dependencies() is False
 
 
 # ----------------------------

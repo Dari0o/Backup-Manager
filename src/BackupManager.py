@@ -89,99 +89,29 @@ def compare_versions(current: str, available: str) -> bool:
 
 
 def detect_environment() -> Dict[str, str]:
-    """Detects the current operating system and Linux distribution."""
-    if sys.platform.startswith("win"):
+    """Detect whether the application is running on its supported platform."""
+    if sys.platform == "win32":
         return {"os": "windows"}
-
-    if sys.platform == "darwin":
-        return {"os": "macos"}
-
-    if sys.platform.startswith("linux"):
-        distro = "unknown"
-        distro_like = ""
-        os_release_path = "/etc/os-release"
-
-        if os.path.exists(os_release_path):
-            try:
-                with open(os_release_path, "r", encoding="utf-8") as handle:
-                    for line in handle:
-                        if "=" not in line:
-                            continue
-                        key, value = line.split("=", 1)
-                        key = key.strip().lower()
-                        value = value.strip().strip('"')
-                        if key == "id":
-                            distro = value.lower()
-                        elif key == "id_like":
-                            distro_like = value.lower()
-            except OSError:
-                pass
-
-        return {"os": "linux", "distro": distro, "distro_like": distro_like}
-
-    return {"os": "unknown"}
+    return {"os": "unsupported"}
 
 
 def get_dependency_install_commands(environment: Optional[Dict[str, str]] = None) -> List[List[str]]:
-    """Returns the package-manager commands needed to install dependencies."""
+    """Return Windows commands needed to install missing dependencies."""
     env = environment or detect_environment()
-    os_name = env.get("os", "unknown")
-    distro = (env.get("distro") or "").lower()
-    distro_like = (env.get("distro_like") or "").lower()
-
     python_packages = [sys.executable, "-m", "pip", "install", "--user", "-U", "prompt_toolkit", "tqdm", "requests"]
 
-    if os_name == "windows":
-        return [
-            ["winget", "install", "--id", "7zip.7zip", "-e", "--accept-source-agreements", "--accept-package-agreements"],
-            python_packages,
-        ]
+    if env.get("os") != "windows":
+        raise OSError("Automatic dependency installation is supported only on Windows.")
 
-    if os_name == "macos":
-        return [
-            ["brew", "install", "p7zip"],
-            python_packages,
-        ]
-
-    if os_name == "linux":
-        apt_like = any(item in distro or item in distro_like for item in ["debian", "ubuntu", "linuxmint", "raspbian", "pop"])
-        if apt_like:
-            return [
-                ["apt-get", "update"],
-                ["apt-get", "install", "-y", "p7zip-full"],
-                python_packages,
-            ]
-
-        yum_like = any(item in distro or item in distro_like for item in ["fedora", "rhel", "centos", "rocky", "almalinux"])
-        if yum_like:
-            return [
-                ["dnf", "install", "-y", "p7zip"],
-                python_packages,
-            ]
-
-        arch_like = any(item in distro or item in distro_like for item in ["arch", "manjaro"])
-        if arch_like:
-            return [
-                ["pacman", "-Sy", "--noconfirm", "p7zip"],
-                python_packages,
-            ]
-
-        return [
-            ["apt-get", "update"],
-            ["apt-get", "install", "-y", "p7zip-full"],
-            python_packages,
-        ]
-
-    return [python_packages]
+    return [
+        ["winget", "install", "--id", "7zip.7zip", "-e", "--accept-source-agreements", "--accept-package-agreements"],
+        python_packages,
+    ]
 
 
 def _run_command(command: List[str], env: Optional[Dict[str, str]] = None) -> bool:
     """Executes a command and logs failures without crashing the update flow."""
     try:
-        if os.name != "nt" and command and command[0] in {"apt-get", "dnf", "pacman", "brew"}:
-            if os.geteuid() != 0 and shutil.which("sudo"):
-                command = ["sudo"] + command
-
         subprocess.run(command, check=True, env=env)
         return True
     except (subprocess.CalledProcessError, FileNotFoundError) as exc:
@@ -194,9 +124,12 @@ def _python_module_available(module_name: str) -> bool:
 
 
 def ensure_dependencies() -> bool:
-    """Installs missing system and Python dependencies needed by BackupManager."""
+    """Installs missing Windows system and Python dependencies."""
     env_info = detect_environment()
-    logger.info(f"Detected environment: {env_info.get('os', 'unknown')} / {env_info.get('distro', 'unknown')}")
+    logger.info("Detected platform: %s", env_info["os"])
+    if env_info["os"] != "windows":
+        logger.error("Automatic dependency installation is supported only on Windows.")
+        return False
 
     seven_zip_available = shutil.which("7z") is not None or os.path.exists(r"C:\Program Files\7-Zip\7z.exe")
     required_modules = ["prompt_toolkit", "tqdm", "requests"]
@@ -218,9 +151,6 @@ def ensure_dependencies() -> bool:
                 continue
 
         env = os.environ.copy()
-        if command[0] in {"apt-get", "dnf", "pacman"}:
-            env.setdefault("DEBIAN_FRONTEND", "noninteractive")
-
         if not _run_command(command, env=env):
             success = False
 
@@ -280,12 +210,16 @@ def _safe_extract_zip(zip_ref: Any, destination: str) -> None:
 
 
 def install_update(release_info: Dict[str, Any]) -> bool:
-    """Installs a new release.
+    """Installs a new release on Windows.
 
     Downloads the newest GitHub release, extracts it to a temp folder,
     then replaces everything in the project root directory with the
     newest release's contents.
     """
+    if detect_environment()["os"] != "windows":
+        logger.error("The in-app update installer is supported only on Windows.")
+        return False
+
     try:
         import requests
         import zipfile
