@@ -1,8 +1,14 @@
 import logging
+import os
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-LOG_DIR = Path(__file__).resolve().parent
+APP_DATA_DIR = Path(
+    os.environ.get("LOCALAPPDATA")
+    or Path.home() / ".backup-manager"
+)
+APP_DATA_DIR = APP_DATA_DIR / "BackupManager"
+LOG_DIR = APP_DATA_DIR / "logs"
 LOG_FILE = LOG_DIR / "backup_manager.log"
 GUI_LOG_HANDLER = None
 

@@ -34,7 +34,8 @@ except ImportError:
         compression_spec.loader.exec_module(compression_module)
         compress_to_zip = compression_module.compress_to_zip
 
-from logger import setup_logger
+from logger import LOG_FILE, setup_logger
+from scheduler import load_schedule_config, scheduled_config_path
 from storage import LocalStorage, Storage
 from storage import SFTPStorage
 
@@ -633,7 +634,7 @@ v {VERSION}
     """)
 
 def main(source_dir: Optional[str] = None, target_dir: Optional[str] = None,
-         storage: Optional[Storage] = None) -> None:
+         storage: Optional[Storage] = None, scheduled: bool = False) -> None:
     """Run a backup, using local storage unless another backend is supplied."""
     print_logo()
     if storage is None and (source_dir is None or target_dir is None):
@@ -642,10 +643,11 @@ def main(source_dir: Optional[str] = None, target_dir: Optional[str] = None,
         target_dir = ""
     selected_storage = storage or LocalStorage(target_dir)
     with selected_storage:
-        _run_backup(source_dir, target_dir, selected_storage)
+        _run_backup(source_dir, target_dir, selected_storage, scheduled=scheduled)
 
 
-def _run_backup(source_dir: Optional[str], target_dir: str, storage: Storage) -> None:
+def _run_backup(source_dir: Optional[str], target_dir: str, storage: Storage,
+                scheduled: bool = False) -> None:
     # If directories not provided as arguments, prompt interactively
     if source_dir is None or target_dir is None:
         source_dir, target_dir = get_directories_interactive()
@@ -653,17 +655,23 @@ def _run_backup(source_dir: Optional[str], target_dir: str, storage: Storage) ->
         # Validate provided directories
         if not os.path.exists(source_dir):
             logger.error(f"ERROR: Source folder does not exist: {source_dir}")
-            input("Press Enter to exit...")
+            if not scheduled:
+                input("Press Enter to exit...")
             sys.exit(1)
         
         if isinstance(storage, LocalStorage) and not os.path.exists(target_dir):
-            logger.error(f"ERROR: Target folder does not exist: {target_dir}")
-            input("Press Enter to exit...")
-            sys.exit(1)
+            if scheduled:
+                os.makedirs(target_dir, exist_ok=True)
+                logger.info("Created scheduled backup target folder: %s", target_dir)
+            else:
+                logger.error(f"ERROR: Target folder does not exist: {target_dir}")
+                input("Press Enter to exit...")
+                sys.exit(1)
         
         if source_dir == target_dir:
             logger.error("ERROR: Source and target folders cannot be the same")
-            input("Press Enter to exit...")
+            if not scheduled:
+                input("Press Enter to exit...")
             sys.exit(1)
 
     validate_backup_paths(source_dir, target_dir, storage)
@@ -701,8 +709,12 @@ def _run_backup(source_dir: Optional[str], target_dir: str, storage: Storage) ->
         if to_delete:
             # Ask for confirmation before destructive action
             try:
-                answer = input(
-                    f"Mirror mode: delete {len(to_delete)} items from target? (y/N): ").strip().lower()
+                if scheduled:
+                    logger.info("Scheduled mirror backup: automatically confirming deletion of %s extra target items.", len(to_delete))
+                    answer = "y"
+                else:
+                    answer = input(
+                        f"Mirror mode: delete {len(to_delete)} items from target? (y/N): ").strip().lower()
             except KeyboardInterrupt:
                 logger.info("Mirror mode: deletion aborted by user")
                 answer = "n"
@@ -848,18 +860,27 @@ def run_console(args: argparse.Namespace) -> None:
     """Run BackupManager in console (CLI/interactive) mode using the parsed arguments."""
     global IGNORE_EXCLUDE_LIST, MIRROR_MODE
 
+    scheduled = bool(
+        getattr(args, "scheduled_config", None)
+        or getattr(args, "scheduled_id", None)
+    )
+    if scheduled:
+        logger.info("Starting scheduled backup. Logs: %s", LOG_FILE)
+
     # Set ignore-exclude-list flag before any scanning begins
     IGNORE_EXCLUDE_LIST = args.ignore_excludes
 
     # Validate argument combinations
     if args.mirror and (args.sevenzip or args.password):
         logger.error("ERROR: Mirror mode is not compatible with 7z encrypted backup")
-        input("Press Enter to exit...")
+        if not scheduled:
+            input("Press Enter to exit...")
         sys.exit(1)
 
     if args.mirror and IGNORE_EXCLUDE_LIST:
         logger.error("ERROR: Mirror mode is not compatible with the ignore-exclude-list argument")
-        input("Press Enter to exit...")
+        if not scheduled:
+            input("Press Enter to exit...")
         sys.exit(1)
 
     if args.update and (args.sevenzip or args.password or args.source or args.target or args.mirror or args.compression is not None or args.ignore_excludes):
@@ -871,11 +892,11 @@ def run_console(args: argparse.Namespace) -> None:
     compression_level = args.compression
     if compression_level is not None:
         if not (0 <= compression_level <= 9):
-            print(f"ERROR: Compression level must be between 0 and 9, got: {compression_level}")
+            logger.error("ERROR: Compression level must be between 0 and 9, got: %s", compression_level)
             sys.exit(1)
         
         if not compress_to_zip:
-            print("ERROR: compression.py could not be imported")
+            logger.error("ERROR: compression.py could not be imported")
             sys.exit(1)
         
     sftp_requested = any((args.sftp_host, args.sftp_username, args.sftp_key, args.sftp_path))
@@ -899,7 +920,7 @@ def run_console(args: argparse.Namespace) -> None:
         elif args.compression is not None:
             success = run_archive_sftp(args.source, sftp_storage, "zip", compression_level=args.compression)
         else:
-            main(source_dir=args.source, target_dir=args.sftp_path, storage=sftp_storage)
+            main(source_dir=args.source, target_dir=args.sftp_path, storage=sftp_storage, scheduled=scheduled)
             success = True
         sys.exit(0 if success else 1)
 
@@ -968,11 +989,14 @@ def run_console(args: argparse.Namespace) -> None:
             source_dir = args.source
 
             if not os.path.exists(source_dir):
-                print(f"ERROR: Source directory does not exist: {source_dir}")
+                logger.error("ERROR: Source directory does not exist: %s", source_dir)
                 sys.exit(1)
 
             if args.target:
                 output_zip = args.target
+                if output_zip.lower().endswith(".zip"):
+                    parent = os.path.dirname(os.path.abspath(output_zip))
+                    os.makedirs(parent, exist_ok=True)
             else:
                 timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
                 output_zip = os.path.join(
@@ -1041,7 +1065,7 @@ def run_console(args: argparse.Namespace) -> None:
 
         try:
 
-            main(source_dir=args.source, target_dir=args.target)
+            main(source_dir=args.source, target_dir=args.target, scheduled=scheduled)
 
         except KeyboardInterrupt:
             logger.info("Aborted by user")
@@ -1129,7 +1153,59 @@ Examples:
         action='store_true',
         help='Start BackupManager in console (CLI/interactive) mode instead of the default GUI'
     )
+    parser.add_argument(
+        '--scheduled-config',
+        type=str,
+        default=None,
+        help=argparse.SUPPRESS
+    )
+    parser.add_argument(
+        '--scheduled-id',
+        type=str,
+        default=None,
+        help=argparse.SUPPRESS
+    )
     args = parser.parse_args()
+
+    if args.scheduled_config and args.scheduled_id:
+        logger.error("Use only one scheduled backup configuration argument.")
+        sys.exit(1)
+
+    if args.scheduled_id:
+        try:
+            args.scheduled_config = str(scheduled_config_path(args.scheduled_id))
+        except ValueError as exc:
+            logger.error("Invalid scheduled backup identifier: %s", exc)
+            sys.exit(1)
+
+    if args.scheduled_config:
+        if not args.console:
+            logger.error("A scheduled backup configuration requires --console mode.")
+            sys.exit(1)
+        try:
+            scheduled_config = load_schedule_config(args.scheduled_config)
+            args.source = scheduled_config["source"]
+            args.target = scheduled_config["target"]
+            args.sftp_host = scheduled_config.get("sftp_host") or None
+            args.sftp_port = int(scheduled_config.get("sftp_port", 22))
+            args.sftp_username = scheduled_config.get("sftp_username") or None
+            args.sftp_key = scheduled_config.get("sftp_key") or None
+            args.sftp_path = args.target if scheduled_config.get("destination") == "SFTP" else None
+            args.sftp_known_hosts = scheduled_config.get("sftp_known_hosts") or None
+            args.mirror = bool(scheduled_config.get("mirror"))
+            args.ignore_excludes = bool(scheduled_config.get("ignore_excludes"))
+            args.compression = scheduled_config.get("compression")
+            args.sevenzip = bool(scheduled_config.get("sevenzip"))
+            args.password = scheduled_config.get("password") or None
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            logger.exception("Could not load scheduled backup configuration: %s", exc)
+            sys.exit(1)
+        logger.info(
+            "Scheduled backup configuration loaded: source=%s, destination=%s, target=%s",
+            args.source,
+            scheduled_config.get("destination", "Local"),
+            args.target,
+        )
 
     if args.console:
         # ==========================================

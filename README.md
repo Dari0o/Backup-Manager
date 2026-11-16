@@ -21,6 +21,7 @@ The program intelligently compares files based on size and modification date and
 - AES-256 encrypted 7z archives
 - SSH key authentication and host verification
 - CLI and GUI
+- Windows scheduled backups with daily or monthly intervals
 - GitHub update system
 
 ---
@@ -111,6 +112,12 @@ Install the latest GitHub release with:
 Or press the 'Install Update' button in the gui version.
 The tool then downloads and installs the latest release and required dependencies.
 
+## Scheduled Backups (Windows)
+
+In the GUI, open **Scheduled Backups...** to view all schedules, add a backup using the settings selected in the main window, or delete a selected schedule. Each schedule has its own Windows Task Scheduler entry and runs independently of the GUI. For a visible console window, the Windows user must be logged in when the task runs. Monthly schedules run on the first day of the month; for example, every 3 months runs on the first day every third month.
+
+The tasks are named **Backup Manager Scheduled Backup** followed by a unique identifier in Task Scheduler Library. Their output and diagnostic logs are written to `%LOCALAPPDATA%\BackupManager\logs\backup_manager.log`. Scheduled 7z passwords are protected for the current Windows user using Windows Data Protection; tasks must run under that same user account.
+
 
 
 ---
@@ -182,7 +189,6 @@ This makes backups fast, especially for large folders.
 
 - Installer
 - Backup profiles
-- Scheduled backups
 
 ---
 

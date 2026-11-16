@@ -106,15 +106,22 @@ def test_git_folder_is_ignored_by_default():
 # logging setup
 # ----------------------------
 
-def test_logger_creates_file_in_src_directory():
+def test_logger_creates_file_in_configured_log_directory(tmp_path, monkeypatch):
     import logger as logger_module
     from pathlib import Path
 
-    logger = logger_module.setup_logger("BackupManager_test")
-    logger.info("test message")
+    log_path = tmp_path / "backup_manager.log"
+    monkeypatch.setattr(logger_module, "LOG_FILE", log_path)
+    test_logger = logger_module.setup_logger("BackupManager_test")
+    try:
+        test_logger.info("test message")
 
-    assert Path(logger_module.LOG_FILE).exists()
-    assert Path(logger_module.LOG_FILE).parent == Path(__file__).resolve().parent
+        assert log_path.exists()
+        assert Path(log_path).parent == tmp_path
+    finally:
+        for handler in list(test_logger.handlers):
+            test_logger.removeHandler(handler)
+            handler.close()
 
 
 # ----------------------------

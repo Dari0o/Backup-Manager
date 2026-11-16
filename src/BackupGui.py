@@ -10,7 +10,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext
 from tkinter import ttk  # Kept only for progressbar
 
-from logger import setup_logger, set_gui_log_handler
+from logger import LOG_FILE, setup_logger, set_gui_log_handler
 from storage import SFTPStorage
 
 logger = setup_logger(__name__)
@@ -18,6 +18,7 @@ logger = setup_logger(__name__)
 # Import core modules
 import BackupManager
 import crypto_utils
+import scheduler
 try:
     from compression import compress_to_zip
 except ImportError:
@@ -113,6 +114,7 @@ class BackupGuiApp:
         self.sevenzip_var = tk.BooleanVar(value=False)
         self.password_var = tk.StringVar()
         self.show_password_var = tk.BooleanVar(value=False)
+        self.schedule_window = None
 
         self.is_running = False
         self.progress_max = 0
@@ -157,8 +159,11 @@ class BackupGuiApp:
             if self.gui_handler not in existing_logger.handlers:
                 existing_logger.addHandler(self.gui_handler)
 
+        logger.info("Backup Manager started. Logs are written to %s", LOG_FILE)
+
         # Start queue checking loop
         self.root.after(100, self.process_ui_queue)
+        threading.Thread(target=self.repair_scheduled_backups, daemon=True).start()
         self.check_for_updates_on_startup()
 
     def create_widgets(self):
@@ -398,6 +403,15 @@ class BackupGuiApp:
         # --- Actions Frame ---
         actions_frame = tk.Frame(main_frame, bg=self.bg_color)
         actions_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(10, 0))
+
+        self.btn_schedules = self.create_flat_button(
+            actions_frame,
+            "Scheduled Backups...",
+            self.open_schedules_window,
+            bg="#3a3a3a",
+            active_bg="#4a4a4a",
+        )
+        self.btn_schedules.pack(side=tk.LEFT)
 
         self.btn_update = self.create_flat_button(
             actions_frame, 
@@ -690,6 +704,292 @@ class BackupGuiApp:
 
         threading.Thread(target=update_task, daemon=False).start()
 
+    def repair_scheduled_backups(self):
+        try:
+            repaired = scheduler.repair_scheduled_backups()
+        except Exception:
+            logger.exception("Could not check or repair registered scheduled backups.")
+            return
+        if repaired:
+            logger.info("Repaired %s scheduled backup task(s).", repaired)
+
+    def open_schedules_window(self):
+        if self.schedule_window is not None and self.schedule_window.winfo_exists():
+            self.schedule_window.deiconify()
+            self.schedule_window.lift()
+            self.refresh_scheduled_backups()
+            return
+
+        window = tk.Toplevel(self.root)
+        self.schedule_window = window
+        window.title("Scheduled Backups")
+        window.geometry("1180x560")
+        window.minsize(850, 420)
+        window.configure(bg=self.bg_color)
+        window.transient(self.root)
+        window.protocol("WM_DELETE_WINDOW", self.close_schedules_window)
+
+        content = tk.Frame(window, bg=self.bg_color, padx=14, pady=14)
+        content.pack(fill=tk.BOTH, expand=True)
+        tk.Label(
+            content,
+            text="Add a schedule using the backup settings currently selected in the main window.",
+            bg=self.bg_color,
+            fg=self.fg_muted,
+            font=("Segoe UI", 9),
+        ).pack(anchor=tk.W, pady=(0, 8))
+
+        add_frame = tk.Frame(content, bg=self.card_bg, padx=10, pady=10)
+        add_frame.pack(fill=tk.X, pady=(0, 10))
+        tk.Label(add_frame, text="Run every", bg=self.card_bg, fg=self.fg_color).pack(side=tk.LEFT)
+        interval_var = tk.StringVar(value="1")
+        tk.Entry(
+            add_frame,
+            textvariable=interval_var,
+            width=5,
+            bg=self.bg_color,
+            fg=self.fg_color,
+            insertbackground=self.fg_color,
+            relief="flat",
+        ).pack(side=tk.LEFT, padx=(6, 4))
+        unit_var = tk.StringVar(value="days")
+        ttk.Combobox(
+            add_frame,
+            textvariable=unit_var,
+            values=("days", "months"),
+            state="readonly",
+            width=8,
+        ).pack(side=tk.LEFT, padx=(0, 12))
+        tk.Label(add_frame, text="at (24-hour HH:MM)", bg=self.card_bg, fg=self.fg_color).pack(side=tk.LEFT)
+        time_var = tk.StringVar(value="09:00")
+        tk.Entry(
+            add_frame,
+            textvariable=time_var,
+            width=7,
+            bg=self.bg_color,
+            fg=self.fg_color,
+            insertbackground=self.fg_color,
+            relief="flat",
+        ).pack(side=tk.LEFT, padx=(6, 12))
+        self.schedule_add_button = self.create_flat_button(
+            add_frame,
+            "Add Current Backup Settings",
+            lambda: self.add_scheduled_backup(interval_var.get(), unit_var.get(), time_var.get()),
+            bg=self.accent_color,
+            active_bg=self.accent_hover,
+        )
+        self.schedule_add_button.pack(side=tk.LEFT)
+
+        table_frame = tk.Frame(content, bg=self.bg_color)
+        table_frame.pack(fill=tk.BOTH, expand=True)
+        columns = ("recurrence", "time", "source", "target", "destination", "options")
+        self.schedule_tree = ttk.Treeview(table_frame, columns=columns, show="headings", selectmode="browse")
+        headers = {
+            "recurrence": ("Recurrence", 120),
+            "time": ("Time", 70),
+            "source": ("Source", 180),
+            "target": ("Target", 180),
+            "destination": ("Destination", 100),
+            "options": ("Backup Settings", 260),
+        }
+        for column, (heading, width) in headers.items():
+            self.schedule_tree.heading(column, text=heading)
+            self.schedule_tree.column(column, width=width, minwidth=70, anchor=tk.W)
+
+        vertical_scroll = ttk.Scrollbar(table_frame, orient=tk.VERTICAL, command=self.schedule_tree.yview)
+        horizontal_scroll = ttk.Scrollbar(table_frame, orient=tk.HORIZONTAL, command=self.schedule_tree.xview)
+        self.schedule_tree.configure(
+            yscrollcommand=vertical_scroll.set,
+            xscrollcommand=horizontal_scroll.set,
+        )
+        self.schedule_tree.grid(row=0, column=0, sticky=tk.NSEW)
+        vertical_scroll.grid(row=0, column=1, sticky=tk.NS)
+        horizontal_scroll.grid(row=1, column=0, sticky=tk.EW)
+        table_frame.rowconfigure(0, weight=1)
+        table_frame.columnconfigure(0, weight=1)
+
+        actions = tk.Frame(content, bg=self.bg_color)
+        actions.pack(fill=tk.X, pady=(10, 0))
+        self.schedule_status = tk.Label(actions, text="", bg=self.bg_color, fg=self.fg_muted)
+        self.schedule_status.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.schedule_delete_button = self.create_flat_button(
+            actions,
+            "Delete Selected",
+            self.delete_selected_schedule,
+            bg="#8b2e2e",
+            active_bg="#b33a3a",
+        )
+        self.schedule_delete_button.pack(side=tk.RIGHT, padx=(8, 0))
+        refresh_button = self.create_flat_button(
+            actions,
+            "Refresh",
+            self.refresh_scheduled_backups,
+            bg="#3a3a3a",
+            active_bg="#4a4a4a",
+        )
+        refresh_button.pack(side=tk.RIGHT)
+        self.refresh_scheduled_backups()
+
+    def close_schedules_window(self):
+        if self.schedule_window is not None and self.schedule_window.winfo_exists():
+            self.schedule_window.destroy()
+        self.schedule_window = None
+
+    def refresh_scheduled_backups(self):
+        if self.schedule_window is None or not self.schedule_window.winfo_exists():
+            return
+        try:
+            schedules = scheduler.list_scheduled_backups()
+        except Exception as exc:
+            logger.exception("Could not read the scheduled backup list.")
+            self.schedule_status.config(text=f"Could not load schedules: {exc}", fg="#f44336")
+            return
+
+        for row in self.schedule_tree.get_children():
+            self.schedule_tree.delete(row)
+        for schedule in schedules:
+            interval = schedule["interval"]
+            unit = schedule["unit"]
+            recurrence = f"Every {interval} {unit}"
+            options = []
+            if schedule.get("mirror"):
+                options.append("Mirror")
+            if schedule.get("ignore_excludes"):
+                options.append("Ignore excludes")
+            if schedule.get("compression") is not None:
+                options.append(f"ZIP (level {schedule['compression']})")
+            if schedule.get("sevenzip"):
+                options.append("Encrypted 7z")
+            if not options:
+                options.append("Standard backup")
+            self.schedule_tree.insert(
+                "",
+                tk.END,
+                iid=schedule["id"],
+                values=(
+                    recurrence,
+                    schedule["time"],
+                    schedule["source"],
+                    schedule["target"],
+                    schedule.get("destination", "Local"),
+                    ", ".join(options),
+                ),
+            )
+        self.schedule_status.config(
+            text=f"{len(schedules)} scheduled backup{'s' if len(schedules) != 1 else ''}. "
+            "Monthly schedules run on the 1st."
+        )
+
+    def add_scheduled_backup(self, interval_value, unit, schedule_time):
+        source = self.source_var.get().strip()
+        target = self.target_var.get().strip()
+        if not source or not target or not os.path.isdir(source):
+            messagebox.showerror("Scheduled Backups", "Select an existing source folder and a target location first.")
+            return
+        if os.path.normcase(os.path.abspath(source)) == os.path.normcase(os.path.abspath(target)):
+            messagebox.showerror("Scheduled Backups", "Source and target cannot be the same folder.")
+            return
+
+        try:
+            interval = int(interval_value.strip())
+            scheduler.task_schedule(interval, unit)
+            schedule_time = scheduler.validate_schedule_time(schedule_time.strip())
+        except ValueError as exc:
+            messagebox.showerror("Invalid Schedule", str(exc))
+            return
+
+        try:
+            port = int(self.sftp_port_var.get()) if self.destination_var.get() == "SFTP" else 22
+        except ValueError:
+            messagebox.showerror("Scheduled Backups", "SFTP port must be a number.")
+            return
+
+        if self.destination_var.get() == "SFTP" and not all(
+            (
+                self.sftp_host_var.get().strip(),
+                self.sftp_username_var.get().strip(),
+                self.sftp_key_var.get().strip(),
+                target,
+            )
+        ):
+            messagebox.showerror("Scheduled Backups", "SFTP host, username, SSH key, and remote path are required.")
+            return
+        if self.destination_var.get() == "SFTP" and not 1 <= port <= 65535:
+            messagebox.showerror("Scheduled Backups", "SFTP port must be between 1 and 65535.")
+            return
+        if self.sevenzip_var.get() and not self.password_var.get():
+            messagebox.showerror("Scheduled Backups", "A password is required for 7z encrypted backups.")
+            return
+        if self.sevenzip_var.get() and not target.lower().endswith(".7z"):
+            target += ".7z"
+        if self.mirror_var.get() and (self.sevenzip_var.get() or self.ignore_excludes_var.get()):
+            messagebox.showerror("Scheduled Backups", "Mirror mode cannot be combined with 7z or Ignore Excludes.")
+            return
+
+        config = {
+            "source": os.path.abspath(source),
+            "target": target,
+            "destination": self.destination_var.get(),
+            "sftp_host": self.sftp_host_var.get().strip(),
+            "sftp_port": port,
+            "sftp_username": self.sftp_username_var.get().strip(),
+            "sftp_key": self.sftp_key_var.get().strip(),
+            "sftp_known_hosts": self.sftp_known_hosts_var.get().strip(),
+            "mirror": self.mirror_var.get(),
+            "ignore_excludes": self.ignore_excludes_var.get(),
+            "compression": self.zip_level_var.get() if self.zip_var.get() else None,
+            "sevenzip": self.sevenzip_var.get(),
+            "password": self.password_var.get() if self.sevenzip_var.get() else "",
+        }
+        self.schedule_add_button.config(state="disabled")
+        self.schedule_status.config(
+            text=f"Adding backup: every {interval} {unit} at {schedule_time}...",
+            fg=self.fg_color,
+        )
+
+        def task():
+            try:
+                scheduler.create_scheduled_backup(
+                    config,
+                    interval,
+                    unit,
+                    schedule_time,
+                )
+            except Exception as exc:
+                logger.exception("Could not add the scheduled backup.")
+                ui_queue.put(("schedule_result", (False, str(exc))))
+            else:
+                ui_queue.put(("schedule_result", (True, "Scheduled backup added.")))
+
+        threading.Thread(target=task, daemon=True).start()
+
+    def delete_selected_schedule(self):
+        selected = self.schedule_tree.selection()
+        if not selected:
+            messagebox.showinfo("Scheduled Backups", "Select a scheduled backup to delete.")
+            return
+        schedule_id = selected[0]
+        if not messagebox.askyesno(
+            "Delete Scheduled Backup",
+            "Delete the selected scheduled backup?",
+            parent=self.schedule_window,
+        ):
+            return
+
+        self.schedule_delete_button.config(state="disabled")
+        self.schedule_status.config(text="Deleting scheduled backup...", fg=self.fg_color)
+
+        def task():
+            try:
+                scheduler.delete_scheduled_backup(schedule_id)
+            except Exception as exc:
+                logger.exception("Could not delete the scheduled backup.")
+                ui_queue.put(("schedule_result", (False, str(exc))))
+            else:
+                ui_queue.put(("schedule_result", (True, "Scheduled backup deleted.")))
+
+        threading.Thread(target=task, daemon=True).start()
+
     def start_backup_process(self):
         source = self.source_var.get().strip()
         target = self.target_var.get().strip()
@@ -944,6 +1244,19 @@ class BackupGuiApp:
                         messagebox.showinfo("Success", "Backup task completed successfully!")
                     else:
                         messagebox.showerror("Failed", "Backup task finished with errors. See logs.")
+
+                elif event_type == "schedule_result":
+                    success, message = data
+                    self.log_message(message, "success" if success else "error")
+                    if self.schedule_window is not None and self.schedule_window.winfo_exists():
+                        self.schedule_add_button.config(state="normal")
+                        self.schedule_delete_button.config(state="normal")
+                        self.schedule_status.config(
+                            text=message,
+                            fg="#4caf50" if success else "#f44336",
+                        )
+                        if success:
+                            self.refresh_scheduled_backups()
                         
                 elif event_type == "update_available":
                     self.set_gui_state(True)
