@@ -2,6 +2,7 @@ import os
 import subprocess
 import shutil
 import re
+import sys
 import tqdm
 
 from logger import setup_logger
@@ -97,7 +98,8 @@ def encrypt_directory_7z(
         progress = tqdm.tqdm(
             desc="7z Encrypting",
             total=100,
-            unit="%"
+            unit="%",
+            disable=sys.stderr is None,
         )
 
         last = 0

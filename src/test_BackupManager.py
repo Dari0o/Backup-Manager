@@ -6,6 +6,7 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 import BackupManager as bm
+import crypto_utils
 
 def is_headless():
     """Check if running in a headless environment."""
@@ -465,6 +466,43 @@ def test_7z_archive_can_be_uploaded_to_sftp_storage(tmp_path, monkeypatch):
     assert bm.run_archive_sftp(str(tmp_path), storage, "7z", password="secret") is True
     assert storage.uploaded[0][0].endswith(".7z")
     assert storage.uploaded[0][1] == b"7z archive"
+
+
+def test_7z_sftp_archive_works_without_stderr(tmp_path, monkeypatch):
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    storage = FakeArchiveStorage()
+
+    class FakeProcess:
+        stdout = iter(["100% done\n"])
+        returncode = 0
+
+        def wait(self):
+            return self.returncode
+
+    def create_archive(command, **kwargs):
+        with open(command[5], "wb") as archive:
+            archive.write(b"encrypted archive")
+        return FakeProcess()
+
+    monkeypatch.setattr(crypto_utils.sys, "stderr", None)
+    monkeypatch.setattr(crypto_utils, "get_7z_path", lambda: "7z.exe")
+    monkeypatch.setattr(crypto_utils.subprocess, "Popen", create_archive)
+
+    assert bm.run_archive_sftp(str(source_dir), storage, "7z", password="secret") is True
+    assert storage.uploaded[0][1] == b"encrypted archive"
+
+
+def test_collect_files_multithread_works_without_stderr(tmp_path, monkeypatch):
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "file.txt").write_text("contents", encoding="utf-8")
+    monkeypatch.setattr(bm.sys, "stderr", None)
+
+    files, total_size = bm.collect_files_multithread(str(source_dir), "Scanning")
+
+    assert len(files) == 1
+    assert total_size == len("contents")
 
 
 def _build_fake_release_zip(root_folder_name: str, files: dict) -> bytes:

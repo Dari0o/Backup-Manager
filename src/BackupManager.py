@@ -418,7 +418,8 @@ def collect_files_multithread(base_dir: str, desc: str, as_index: bool = False,
 
     file_list = []
     scan_pbar = tqdm_.tqdm(
-        desc=f"{desc} (scanning...)", unit=" dirs", position=0, leave=False)
+        desc=f"{desc} (scanning...)", unit=" dirs", position=0, leave=False,
+        disable=sys.stderr is None)
 
     # Directory traversal is intentionally serial; file stat calls below are parallel.
     dir_queue = [base_dir]
@@ -446,7 +447,8 @@ def collect_files_multithread(base_dir: str, desc: str, as_index: bool = False,
     results = {} if as_index else []
     total_size = 0
 
-    with tqdm_.tqdm(total=len(file_list), desc=desc, unit=" files") as pbar:
+    with tqdm_.tqdm(total=len(file_list), desc=desc, unit=" files",
+                    disable=sys.stderr is None) as pbar:
 
         with ThreadPoolExecutor(max_workers=THREADS) as executor:
 
@@ -664,7 +666,8 @@ def _run_backup(source_dir: Optional[str], target_dir: str, storage: Storage,
                 logger.info(f"Mirror mode: deleting {len(to_delete)} items from target")
 
                 deleted = 0
-                with tqdm_.tqdm(total=len(to_delete), desc="Deleting", unit="items") as del_pbar:
+                with tqdm_.tqdm(total=len(to_delete), desc="Deleting", unit="items",
+                                disable=sys.stderr is None) as del_pbar:
                     for rel in to_delete:
                         try:
                             storage.delete(rel)
@@ -688,6 +691,7 @@ def _run_backup(source_dir: Optional[str], target_dir: str, storage: Storage,
         unit="B",
         unit_scale=True,
         desc="Comparing Files",
+        disable=sys.stderr is None,
     ) as pbar:
 
         for src, size, mtime in source_files:
@@ -723,6 +727,7 @@ def _run_backup(source_dir: Optional[str], target_dir: str, storage: Storage,
             unit="B",
             unit_scale=True,
             desc="Copying",
+            disable=sys.stderr is None,
         ) as pbar:
             if storage.supports_cancellation():
                 for file_index, (path, size) in enumerate(files_to_copy):
@@ -786,7 +791,8 @@ def run_archive_sftp(source_dir: str, storage: SFTPStorage, archive_type: str,
 
                 archive_size = os.path.getsize(local_archive)
                 with tqdm_.tqdm(total=archive_size, unit="B", unit_scale=True,
-                                desc="Uploading archive") as progress:
+                                desc="Uploading archive",
+                                disable=sys.stderr is None) as progress:
                     storage.upload_file(local_archive, archive_name, progress)
             logger.info("Backup completed: %s", archive_name)
             return True
