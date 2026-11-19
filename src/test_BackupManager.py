@@ -219,6 +219,26 @@ def test_run_backup_uses_expected_source_folder_layout(tmp_path, target_name, ex
     assert (target_dir.joinpath(*expected_parts)).read_text(encoding="utf-8") == "content"
 
 
+def test_run_backup_reports_file_copy_failures(tmp_path):
+    source_dir = tmp_path / "source"
+    target_dir = tmp_path / "target"
+    source_dir.mkdir()
+    target_dir.mkdir()
+    (source_dir / "file.txt").write_text("content", encoding="utf-8")
+
+    class FailingStorage(bm.LocalStorage):
+        def upload_file(self, local_path, relative_path, progress):
+            raise OSError("network share disconnected")
+
+    success = bm._run_backup(
+        str(source_dir),
+        str(target_dir),
+        FailingStorage(str(target_dir)),
+    )
+
+    assert success is False
+
+
 def test_validate_backup_paths_rejects_target_inside_source(tmp_path):
     source_dir = tmp_path / "source"
     target_dir = source_dir / "backup"
@@ -259,6 +279,71 @@ def test_run_console_processes_compression_level_zero(tmp_path):
 
     assert exit_info.value.code == 0
     assert compress.call_args.args[2] == 0
+
+
+def test_local_backup_retries_when_network_target_is_unavailable(tmp_path):
+    source_dir = tmp_path / "source"
+    target_dir = tmp_path / "network" / "backup"
+    source_dir.mkdir()
+    prompted_errors = []
+
+    def restore_target(error_message):
+        prompted_errors.append(error_message)
+        target_dir.mkdir(parents=True)
+        return True
+
+    assert bm.run_with_retry(
+        lambda: bm.main(str(source_dir), str(target_dir)),
+        restore_target,
+    ) is True
+    assert len(prompted_errors) == 1
+    assert "Target folder is not available" in prompted_errors[0]
+
+
+def test_console_sftp_retry_creates_a_fresh_storage_connection(tmp_path, monkeypatch):
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    storage_instances = []
+    backup_attempts = []
+    args = type("Args", (), {
+        "ignore_excludes": False,
+        "mirror": False,
+        "sevenzip": False,
+        "password": None,
+        "source": str(source_dir),
+        "target": "/backups",
+        "compression": None,
+        "update": False,
+        "sftp_host": "example.test",
+        "sftp_username": "backup",
+        "sftp_key": "id_ed25519",
+        "sftp_path": "/backups",
+        "sftp_port": 22,
+        "sftp_known_hosts": None,
+        "scheduled_config": None,
+        "scheduled_id": None,
+    })()
+
+    monkeypatch.setattr(
+        bm,
+        "SFTPStorage",
+        lambda **kwargs: storage_instances.append(object()) or storage_instances[-1],
+    )
+
+    def run_attempt(source_dir, target_dir, storage, scheduled):
+        backup_attempts.append(storage)
+        if len(backup_attempts) == 1:
+            raise OSError("connection lost")
+        return True
+
+    monkeypatch.setattr(bm, "main", run_attempt)
+    with patch("builtins.input", return_value="y"):
+        with pytest.raises(SystemExit) as exit_info:
+            bm.run_console(args)
+
+    assert exit_info.value.code == 0
+    assert len(storage_instances) == 2
+    assert backup_attempts == storage_instances
 
 
 # ----------------------------
@@ -512,6 +597,35 @@ def test_gui_uses_backup_manager_compressor():
     import BackupGui
 
     assert BackupGui.compress_to_zip is bm.compress_to_zip
+
+
+def test_gui_backup_worker_retries_a_failed_attempt(monkeypatch):
+    import BackupGui
+
+    while not BackupGui.ui_queue.empty():
+        BackupGui.ui_queue.get_nowait()
+
+    app = object.__new__(BackupGui.BackupGuiApp)
+    app.ask_backup_retry = lambda _message: True
+    attempts = []
+
+    def run_attempt(source, target):
+        attempts.append((source, target))
+        return len(attempts) > 1
+
+    monkeypatch.setattr(
+        app,
+        "_run_backup_attempt",
+        run_attempt,
+    )
+
+    app.backup_worker("source", "target")
+
+    events = []
+    while not BackupGui.ui_queue.empty():
+        events.append(BackupGui.ui_queue.get_nowait())
+    assert attempts == [("source", "target"), ("source", "target")]
+    assert ("backup_done", True) in events
 
 
 @pytest.mark.skipif(is_headless(), reason="No X11 display available")

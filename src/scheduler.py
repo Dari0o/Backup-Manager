@@ -139,17 +139,32 @@ def build_task_action(
     schedule_id: str | None = None,
 ) -> str:
     """Build a quoted command that runs a saved scheduled backup."""
+    executable, arguments = _task_action_parts(
+        config_path=config_path,
+        script_path=script_path,
+        executable=executable,
+        schedule_id=schedule_id,
+    )
+    return subprocess.list2cmdline([executable, *arguments])
+
+
+def _task_action_parts(
+    config_path: Path = SCHEDULE_CONFIG,
+    script_path: Path | None = None,
+    executable: str | None = None,
+    schedule_id: str | None = None,
+) -> tuple[str, list[str]]:
     executable = _console_executable(executable)
     script_path = script_path or Path(__file__).with_name("BackupManager.py")
 
-    command = [executable]
+    arguments = []
     if not getattr(sys, "frozen", False):
-        command.append(str(script_path))
+        arguments.append(str(script_path))
     if schedule_id is not None:
-        command.extend(("--console", "--scheduled-id", schedule_id))
+        arguments.extend(("--console", "--scheduled-id", schedule_id))
     else:
-        command.extend(("--console", "--scheduled-config", str(config_path)))
-    return subprocess.list2cmdline(command)
+        arguments.extend(("--console", "--scheduled-config", str(config_path)))
+    return executable, arguments
 
 
 def scheduled_config_path(schedule_id: str) -> Path:
@@ -166,28 +181,16 @@ def _task_action_elements(task_xml: ET.Element) -> tuple[ET.Element, ET.Element]
     return command, arguments
 
 
-def _task_launch_parts(schedule: dict[str, Any]) -> tuple[str, str]:
-    executable = _console_executable()
-    script_path = Path(__file__).with_name("BackupManager.py")
-    arguments = []
-    if not getattr(sys, "frozen", False):
-        arguments.append(str(script_path))
-    arguments.append("--console")
-    schedule_id = schedule.get("id")
-    if schedule_id == "legacy":
-        arguments.extend(("--scheduled-config", str(SCHEDULE_CONFIG)))
-    else:
-        scheduled_config_path(str(schedule_id))
-        arguments.extend(("--scheduled-id", str(schedule_id)))
-    return executable, subprocess.list2cmdline(arguments)
-
-
 def _rewrite_task_action(schedule: dict[str, Any], task_xml_text: str) -> None:
     task_xml = ET.fromstring(task_xml_text)
     command_element, arguments_element = _task_action_elements(task_xml)
-    executable, arguments = _task_launch_parts(schedule)
+    schedule_id = schedule.get("id")
+    executable, arguments = _task_action_parts(
+        config_path=SCHEDULE_CONFIG if schedule_id == "legacy" else scheduled_config_path(str(schedule_id)),
+        schedule_id=None if schedule_id == "legacy" else str(schedule_id),
+    )
     command_element.text = executable
-    arguments_element.text = arguments
+    arguments_element.text = subprocess.list2cmdline(arguments)
     ET.register_namespace("", TASK_NAMESPACE)
 
     APP_DATA_DIR.mkdir(parents=True, exist_ok=True)

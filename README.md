@@ -104,6 +104,8 @@ The GUI provides the same fields after selecting `SFTP` as the destination.
 
 For SFTP archive backups, ZIP and 7z files are created temporarily, uploaded under the remote root and removed locally afterward.
 
+If a local/network destination is unavailable or an SFTP connection or transfer fails, console and GUI backups report the failure and offer to retry. Each retry starts the backup again; SFTP retries create a new connection. Scheduled backups run unattended and do not prompt to retry.
+
 ---
 
 ## Update System

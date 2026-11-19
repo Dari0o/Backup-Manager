@@ -1,11 +1,9 @@
 import os
-import sys
 import threading
 import queue
 import builtins
 import time
 import logging
-from datetime import datetime
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext
 from tkinter import ttk  # Kept only for progressbar
@@ -1063,53 +1061,59 @@ class BackupGuiApp:
         if getattr(self, "active_storage", None) is not None:
             self.active_storage.cancel()
 
-    def backup_worker(self, source, target):
-        success = False
-        start_time = time.time()
-        
-        try:
-            selected_storage = None
-            if self.destination_var.get() == "SFTP":
-                selected_storage = SFTPStorage(
-                    host=self.sftp_host_var.get().strip(),
-                    port=int(self.sftp_port_var.get()),
-                    username=self.sftp_username_var.get().strip(),
-                    key_path=self.sftp_key_var.get().strip(),
-                    remote_root=target,
-                    known_hosts_path=self.sftp_known_hosts_var.get().strip() or None,
-                )
-                self.active_storage = selected_storage
+    def ask_backup_retry(self, error_message):
+        response_queue = queue.Queue()
+        ui_queue.put(("retry_prompt", (error_message, response_queue)))
+        return response_queue.get()
 
-            # 7z Encrypted archive path
+    def _run_backup_attempt(self, source, target):
+        selected_storage = None
+        if self.destination_var.get() == "SFTP":
+            selected_storage = SFTPStorage(
+                host=self.sftp_host_var.get().strip(),
+                port=int(self.sftp_port_var.get()),
+                username=self.sftp_username_var.get().strip(),
+                key_path=self.sftp_key_var.get().strip(),
+                remote_root=target,
+                known_hosts_path=self.sftp_known_hosts_var.get().strip() or None,
+            )
+            self.active_storage = selected_storage
+
+        try:
             if self.sevenzip_var.get():
                 ui_queue.put(("log", "=== Initializing 7z encrypted backup ==="))
                 ui_queue.put(("log", f"Source: {source}"))
                 ui_queue.put(("log", f"Archive file: {target}"))
-                
-                if selected_storage is not None:
-                    success = BackupManager.run_archive_sftp(
-                        source, selected_storage, "7z", password=self.password_var.get()
-                    )
-                else:
+                try:
+                    if selected_storage is not None:
+                        return BackupManager.run_archive_sftp(
+                            source, selected_storage, "7z", password=self.password_var.get()
+                        )
+
                     parent = os.path.dirname(target)
                     if parent:
                         os.makedirs(parent, exist_ok=True)
-                    ui_queue.put(("progress_init", {"total": 0, "desc": "7z Encrypting", "indeterminate": True}))
-                    success = crypto_utils.encrypt_directory_7z(
+                    ui_queue.put(("progress_init", {
+                        "total": 0,
+                        "desc": "7z Encrypting",
+                        "indeterminate": True,
+                    }))
+                    return crypto_utils.encrypt_directory_7z(
                         source_dir=source,
                         output_file=target,
                         password=self.password_var.get(),
                         log_func=lambda msg: ui_queue.put(("log", msg)),
-                        progress_callback=lambda percent: ui_queue.put(("progress_update", {"percent": percent}))
+                        progress_callback=lambda percent: ui_queue.put(
+                            ("progress_update", {"percent": percent})
+                        ),
                     )
-                ui_queue.put(("progress_close", {}))
-                    
-            # ZIP Compression path
-            elif self.zip_var.get():
+                finally:
+                    ui_queue.put(("progress_close", {}))
+
+            if self.zip_var.get():
                 ui_queue.put(("log", "=== Initializing ZIP compression backup ==="))
                 ui_queue.put(("log", f"Source: {source}"))
                 ui_queue.put(("log", f"Archive file: {target}"))
-                
                 if not compress_to_zip:
                     error_message = (
                         "ZIP compression is unavailable: BackupManager could not load "
@@ -1117,43 +1121,57 @@ class BackupGuiApp:
                     )
                     logger.error(error_message)
                     ui_queue.put(("log", f"ERROR: {error_message}"))
-                else:
-                    ui_queue.put(("progress_init", {"total": 0, "desc": "7z Compressing", "indeterminate": True}))
+                    return False
 
-                    if selected_storage is not None:
-                        success = BackupManager.run_archive_sftp(
-                            source, selected_storage, "zip",
-                            compression_level=self.zip_level_var.get()
-                        )
-                    else:
-                        if target.lower().endswith(".zip"):
-                            parent = os.path.dirname(target)
-                            if parent:
-                                os.makedirs(parent, exist_ok=True)
-                        success = compress_to_zip(
-                            source,
-                            target,
-                            compression_level=self.zip_level_var.get(),
-                            log_func=lambda msg: ui_queue.put(("log", msg)),
-                            should_ignore_func=BackupManager.should_ignore,
-                            num_threads=BackupManager.THREADS,
-                            progress_callback=lambda percent: ui_queue.put(("progress_update", {"percent": percent}))
-                        )
-                    ui_queue.put(("progress_close", {}))
-            
-            # Normal Backup path
-            else:
                 try:
-                    # Run main logic without letting CLI exit calls terminate the GUI app.
-                    BackupManager.main(source_dir=source, target_dir=target, storage=selected_storage)
-                    success = True
-                except SystemExit as e:
-                    ui_queue.put(("log", f"WARNING: GUI backup task was interrupted by a system exit: {e}"))
-                    success = False
-                except KeyboardInterrupt:
-                    ui_queue.put(("log", "WARNING: GUI backup task was interrupted by user input."))
-                    success = False
-                
+                    ui_queue.put(("progress_init", {
+                        "total": 0,
+                        "desc": "7z Compressing",
+                        "indeterminate": True,
+                    }))
+                    if selected_storage is not None:
+                        return BackupManager.run_archive_sftp(
+                            source,
+                            selected_storage,
+                            "zip",
+                            compression_level=self.zip_level_var.get(),
+                        )
+
+                    if target.lower().endswith(".zip"):
+                        parent = os.path.dirname(target)
+                        if parent:
+                            os.makedirs(parent, exist_ok=True)
+                    return compress_to_zip(
+                        source,
+                        target,
+                        compression_level=self.zip_level_var.get(),
+                        log_func=lambda msg: ui_queue.put(("log", msg)),
+                        should_ignore_func=BackupManager.should_ignore,
+                        num_threads=BackupManager.THREADS,
+                        progress_callback=lambda percent: ui_queue.put(
+                            ("progress_update", {"percent": percent})
+                        ),
+                    )
+                finally:
+                    ui_queue.put(("progress_close", {}))
+
+            return BackupManager.main(
+                source_dir=source,
+                target_dir=target,
+                storage=selected_storage,
+            )
+        finally:
+            self.active_storage = None
+
+    def backup_worker(self, source, target):
+        success = False
+        start_time = time.time()
+
+        try:
+            success = BackupManager.run_with_retry(
+                lambda: self._run_backup_attempt(source, target),
+                self.ask_backup_retry,
+            )
         except SystemExit as e:
             ui_queue.put(("log", f"WARNING: GUI backup task ended via SystemExit: {e}"))
             success = False
@@ -1194,6 +1212,15 @@ class BackupGuiApp:
                     else:
                         # Any default/unhandled prompt
                         res_queue.put("")
+
+                elif event_type == "retry_prompt":
+                    error_message, response_queue = data
+                    retry = messagebox.askyesno(
+                        "Backup Failed",
+                        f"{error_message}\n\nWould you like to retry the backup?",
+                        parent=self.root,
+                    )
+                    response_queue.put(retry)
                         
                 elif event_type == "progress_init":
                     self.progress_max = data.get("total") or 0

@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import tqdm as tqdm_
 from prompt_toolkit import prompt
 from prompt_toolkit.completion import PathCompleter
-from typing import List, Dict, Tuple, Optional, Union, Any
+from typing import List, Dict, Tuple, Optional, Union, Any, Callable
 from crypto_utils import encrypt_directory_7z
 
 try:
@@ -46,6 +46,25 @@ def log(message: str) -> None:
     logger.info(message)
 
 
+def run_with_retry(
+    operation: Callable[[], bool],
+    ask_retry: Callable[[str], bool],
+) -> bool:
+    """Run a backup operation again when it fails and the user requests it."""
+    while True:
+        try:
+            if operation():
+                return True
+            error_message = "The backup did not complete successfully."
+            logger.error(error_message)
+        except Exception as exc:
+            error_message = str(exc) or "An unexpected backup error occurred."
+            logger.exception("Backup attempt failed: %s", error_message)
+
+        if not ask_retry(error_message):
+            return False
+
+
 def should_ignore(entry) -> bool:
     if IGNORE_EXCLUDE_LIST:
         return False
@@ -56,7 +75,7 @@ def should_ignore(entry) -> bool:
 # Global Variables
 # ----------------------------
 THREADS = 32
-VERSION = "2.0.0"  # Current version
+VERSION = "2.0.1"  # Current version
 IGNORE_EXCLUDE_LIST = False #for -i argument
 MIRROR_MODE = False #for --mirror argument
 
@@ -465,12 +484,6 @@ def collect_files_multithread(base_dir: str, desc: str, as_index: bool = False,
     return results, total_size
 
 
-def scan_files_multithread(base: str, desc: str,
-                           scan_errors: Optional[List[str]] = None) -> Tuple[List[Tuple[str, int, float]], int]:
-    """Scans files and returns a list with absolute paths"""
-    return collect_files_multithread(base, desc, as_index=False, scan_errors=scan_errors)
-
-
 def validate_backup_paths(source_dir: str, target_dir: str, storage: Storage) -> None:
     """Validate local backup paths before scanning or creating destination files."""
     if not os.path.isdir(source_dir):
@@ -568,7 +581,7 @@ v {VERSION}
     """)
 
 def main(source_dir: Optional[str] = None, target_dir: Optional[str] = None,
-         storage: Optional[Storage] = None, scheduled: bool = False) -> None:
+         storage: Optional[Storage] = None, scheduled: bool = False) -> bool:
     """Run a backup, using local storage unless another backend is supplied."""
     print_logo()
     if storage is None and (source_dir is None or target_dir is None):
@@ -577,11 +590,11 @@ def main(source_dir: Optional[str] = None, target_dir: Optional[str] = None,
         target_dir = ""
     selected_storage = storage or LocalStorage(target_dir)
     with selected_storage:
-        _run_backup(source_dir, target_dir, selected_storage, scheduled=scheduled)
+        return _run_backup(source_dir, target_dir, selected_storage, scheduled=scheduled)
 
 
 def _run_backup(source_dir: Optional[str], target_dir: str, storage: Storage,
-                scheduled: bool = False) -> None:
+                scheduled: bool = False) -> bool:
     # If directories not provided as arguments, prompt interactively
     if source_dir is None or target_dir is None:
         source_dir, target_dir = get_directories_interactive()
@@ -598,9 +611,7 @@ def _run_backup(source_dir: Optional[str], target_dir: str, storage: Storage,
                 os.makedirs(target_dir, exist_ok=True)
                 logger.info("Created scheduled backup target folder: %s", target_dir)
             else:
-                logger.error(f"ERROR: Target folder does not exist: {target_dir}")
-                input("Press Enter to exit...")
-                sys.exit(1)
+                raise OSError(f"Target folder is not available: {target_dir}")
         
         if source_dir == target_dir:
             logger.error("ERROR: Source and target folders cannot be the same")
@@ -617,8 +628,8 @@ def _run_backup(source_dir: Optional[str], target_dir: str, storage: Storage,
     logger.info("=== Script started ===")
 
     source_scan_errors: List[str] = []
-    source_files, source_size = scan_files_multithread(
-        source_dir, "Scanning Source", source_scan_errors
+    source_files, source_size = collect_files_multithread(
+        source_dir, "Scanning Source", scan_errors=source_scan_errors
     )
 
     if source_scan_errors:
@@ -630,6 +641,7 @@ def _run_backup(source_dir: Optional[str], target_dir: str, storage: Storage,
     target_index = storage.index()
 
     # If mirror mode: delete files in target that are not present in source
+    deletion_errors = 0
     if MIRROR_MODE:
 
         # Build set of relative paths present in source
@@ -668,6 +680,7 @@ def _run_backup(source_dir: Optional[str], target_dir: str, storage: Storage,
                             deleted += 1
                         except Exception as e:
                             logger.error(f"Error deleting {rel}: {e}")
+                            deletion_errors += 1
                         finally:
                             del_pbar.update(1)
 
@@ -709,10 +722,10 @@ def _run_backup(source_dir: Optional[str], target_dir: str, storage: Storage,
     logger.info(f"New files: {new_files}")
     logger.info(f"Replacing existing files: {replace_files}")
 
+    skipped_files = 0
     if len(files_to_copy) > 0:
 
         logger.info("Copy process started")
-        skipped_files = 0
 
         with tqdm_.tqdm(
             total=copy_size,
@@ -748,6 +761,7 @@ def _run_backup(source_dir: Optional[str], target_dir: str, storage: Storage,
         logger.info("No files need to be copied")
 
     logger.info("=== Script finished ===")
+    return skipped_files == 0 and deletion_errors == 0
 
 
 def run_archive_sftp(source_dir: str, storage: SFTPStorage, archive_type: str,
@@ -788,6 +802,14 @@ def run_archive_sftp(source_dir: str, storage: SFTPStorage, archive_type: str,
         except Exception as exc:
             logger.error("SFTP archive backup failed: %s", exc)
             return False
+
+
+def _ask_console_retry(error_message: str) -> bool:
+    try:
+        answer = input(f"Backup failed: {error_message}\nRetry the backup? (y/N): ")
+    except EOFError:
+        return False
+    return answer.strip().lower() in {"y", "yes"}
 
 
 def run_console(args: argparse.Namespace) -> None:
@@ -838,24 +860,34 @@ def run_console(args: argparse.Namespace) -> None:
         if not all((args.sftp_host, args.sftp_username, args.sftp_key, args.sftp_path, args.source)):
             logger.error("ERROR: SFTP requires --source, --sftp-host, --sftp-username, --sftp-key, and --sftp-path")
             sys.exit(1)
-        sftp_storage = SFTPStorage(
-            host=args.sftp_host,
-            port=args.sftp_port,
-            username=args.sftp_username,
-            key_path=args.sftp_key,
-            remote_root=args.sftp_path,
-            known_hosts_path=args.sftp_known_hosts,
-        )
-        if args.sevenzip:
-            if not args.password:
-                logger.warning("WARNING: --password is required")
-                sys.exit(1)
-            success = run_archive_sftp(args.source, sftp_storage, "7z", password=args.password)
-        elif args.compression is not None:
-            success = run_archive_sftp(args.source, sftp_storage, "zip", compression_level=args.compression)
-        else:
-            main(source_dir=args.source, target_dir=args.sftp_path, storage=sftp_storage, scheduled=scheduled)
-            success = True
+        if args.sevenzip and not args.password:
+            logger.warning("WARNING: --password is required")
+            sys.exit(1)
+
+        def run_sftp_backup() -> bool:
+            sftp_storage = SFTPStorage(
+                host=args.sftp_host,
+                port=args.sftp_port,
+                username=args.sftp_username,
+                key_path=args.sftp_key,
+                remote_root=args.sftp_path,
+                known_hosts_path=args.sftp_known_hosts,
+            )
+            if args.sevenzip:
+                return run_archive_sftp(args.source, sftp_storage, "7z", password=args.password)
+            if args.compression is not None:
+                return run_archive_sftp(
+                    args.source, sftp_storage, "zip", compression_level=args.compression
+                )
+            return main(
+                source_dir=args.source,
+                target_dir=args.sftp_path,
+                storage=sftp_storage,
+                scheduled=scheduled,
+            )
+
+        retry_prompt = (lambda _message: False) if scheduled else _ask_console_retry
+        success = run_with_retry(run_sftp_backup, retry_prompt)
         sys.exit(0 if success else 1)
 
     if args.sevenzip:
@@ -873,27 +905,27 @@ def run_console(args: argparse.Namespace) -> None:
             logger.warning("WARNING: --target is required")
             sys.exit(1)
 
-        target_path = args.target
-        if target_path.lower().endswith(".7z"):
-            output_file = target_path
-            os.makedirs(os.path.dirname(os.path.abspath(output_file)), exist_ok=True)
-        else:
-            os.makedirs(target_path, exist_ok=True)
-            timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
-            output_file = os.path.join(target_path, f"backup_{timestamp}.7z")
+        def run_7z_backup() -> bool:
+            target_path = args.target
+            if target_path.lower().endswith(".7z"):
+                output_file = target_path
+                os.makedirs(os.path.dirname(os.path.abspath(output_file)), exist_ok=True)
+            else:
+                os.makedirs(target_path, exist_ok=True)
+                timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+                output_file = os.path.join(target_path, f"backup_{timestamp}.7z")
+            success = encrypt_directory_7z(
+                source_dir=args.source,
+                output_file=output_file,
+                password=args.password,
+                log_func=logger.info
+            )
+            if success:
+                logger.info("Backup completed: %s", output_file)
+            return success
 
-        success = encrypt_directory_7z(
-            source_dir=args.source,
-            output_file=output_file,
-            password=args.password,
-            log_func=logger.info
-        )
-
-        if success:
-            logger.info(f"Backup completed: {output_file}")
-        else:
-            logger.error("Backup failed")
-
+        retry_prompt = (lambda _message: False) if scheduled else _ask_console_retry
+        success = run_with_retry(run_7z_backup, retry_prompt)
         sys.exit(0 if success else 1)
 
     MIRROR_MODE = args.mirror
@@ -928,9 +960,6 @@ def run_console(args: argparse.Namespace) -> None:
 
             if args.target:
                 output_zip = args.target
-                if output_zip.lower().endswith(".zip"):
-                    parent = os.path.dirname(os.path.abspath(output_zip))
-                    os.makedirs(parent, exist_ok=True)
             else:
                 timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
                 output_zip = os.path.join(
@@ -938,22 +967,32 @@ def run_console(args: argparse.Namespace) -> None:
                     f"backup_{timestamp}.zip"
                 )
         
-        # Start compression
+        def run_zip_backup() -> bool:
+            if output_zip.lower().endswith(".zip"):
+                parent = os.path.dirname(os.path.abspath(output_zip))
+                os.makedirs(parent, exist_ok=True)
+            return compress_to_zip(
+                source_dir,
+                output_zip,
+                compression_level,
+                log_func=logger.info,
+                should_ignore_func=should_ignore,
+                num_threads=THREADS,
+            )
+
+        retry_prompt = (lambda _message: False) if scheduled else _ask_console_retry
         try:
-            success = compress_to_zip(source_dir, output_zip, compression_level, log_func=logger.info, should_ignore_func=should_ignore, num_threads=THREADS)
+            success = run_with_retry(run_zip_backup, retry_prompt)
         except KeyboardInterrupt:
             logger.info("Compression aborted by user")
             if os.path.exists(output_zip):
                 try:
                     os.remove(output_zip)
-                    logger.info(f"Incomplete ZIP file deleted: {output_zip}")
+                    logger.info("Incomplete ZIP file deleted: %s", output_zip)
                 except OSError as cleanup_error:
-                    logger.warning(f"Unable to remove incomplete ZIP file: {cleanup_error}")
+                    logger.warning("Unable to remove incomplete ZIP file: %s", cleanup_error)
             sys.exit(130)
-        except Exception as e:
-            logger.error(f"Compression error: {e}")
-            sys.exit(1)
-        
+
         sys.exit(0 if success else 1)
 
     # Check if update mode is enabled
@@ -997,19 +1036,22 @@ def run_console(args: argparse.Namespace) -> None:
                     "Run BackupManager.py --update to install the update\n"
                 )
 
+        retry_prompt = (lambda _message: False) if scheduled else _ask_console_retry
         try:
-
-            main(source_dir=args.source, target_dir=args.target, scheduled=scheduled)
+            success = run_with_retry(
+                lambda: main(
+                    source_dir=args.source,
+                    target_dir=args.target,
+                    scheduled=scheduled,
+                ),
+                retry_prompt,
+            )
 
         except KeyboardInterrupt:
             logger.info("Aborted by user")
             sys.exit(130)
 
-        except Exception as e:
-            logger.error(f"Unexpected error: {e}")
-            sys.exit(1)
-
-        sys.exit(0)
+        sys.exit(0 if success else 1)
 
 
 if __name__ == "__main__":
@@ -1018,7 +1060,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="BackupManager - A fast backup utility",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
+        epilog=r"""
 Examples:
   python BackupManager.py
   python BackupManager.py --console --source D:\\Data --target \\\\nas\\backup
@@ -1027,7 +1069,7 @@ Examples:
   python BackupManager.py --console -c 6
   python BackupManager.py --console --sevenzip --password 1234  --source D:\\Data --target \\\\nas\\backup
   python BackupManager.py --console --update
-  python BackupManager.py
+  python BackupManager.py --source D:\Data --sftp-host 192.168.2.21 --sftp-port 22 --sftp-username backup --sftp-key C:\Users\me\.ssh\id_ed25519 --sftp-path /backups/my-backup
         """
     )
 

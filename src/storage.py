@@ -4,6 +4,7 @@ import os
 import posixpath
 import stat
 import threading
+import shutil
 from abc import ABC, abstractmethod
 from typing import Dict, Optional, Tuple, Any
 
@@ -79,7 +80,6 @@ class LocalStorage(Storage):
     def upload_file(self, local_path: str, relative_path: str, progress: Any) -> None:
         destination = os.path.join(self.root, relative_path)
         os.makedirs(os.path.dirname(destination), exist_ok=True)
-        import shutil
         shutil.copy2(local_path, destination)
         progress.update(os.path.getsize(local_path))
 
@@ -91,7 +91,6 @@ class LocalStorage(Storage):
         if os.path.isfile(destination) or os.path.islink(destination):
             os.remove(destination)
         elif os.path.isdir(destination):
-            import shutil
             shutil.rmtree(destination)
 
 
