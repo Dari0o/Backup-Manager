@@ -21,18 +21,9 @@ except ImportError:
         return False
 
 try:
-    from compression import compress_to_zip
+    from backup_compression import compress_to_zip
 except ImportError:
-    compression_path = os.path.join(os.path.dirname(__file__), "compression.py")
-    compression_spec = importlib.util.spec_from_file_location(
-        "backup_manager_compression", compression_path
-    )
-    if compression_spec is None or compression_spec.loader is None:
-        compress_to_zip = None
-    else:
-        compression_module = importlib.util.module_from_spec(compression_spec)
-        compression_spec.loader.exec_module(compression_module)
-        compress_to_zip = compression_module.compress_to_zip
+    compress_to_zip = None
 
 from logger import LOG_FILE, setup_logger
 from scheduler import load_schedule_config, scheduled_config_path
@@ -852,7 +843,7 @@ def run_console(args: argparse.Namespace) -> None:
             sys.exit(1)
         
         if not compress_to_zip:
-            logger.error("ERROR: compression.py could not be imported")
+            logger.error("ERROR: backup_compression.py could not be imported")
             sys.exit(1)
         
     sftp_requested = any((args.sftp_host, args.sftp_username, args.sftp_key, args.sftp_path))
